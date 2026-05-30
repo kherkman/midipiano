@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>3D Grand Piano — MIDI synced to falling stars</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --bg: #0a0a0f;
+  --accent: #c9a84c;
+  --accent2: #f5e2a0;
+  --glow: #c9a84c55;
+  --ivory: #f5f0e8;
+  --ebony: #1a1610;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+html, body {
+  width:100%; height:100%;
+  background: var(--bg);
+  font-family: 'Space Mono', monospace;
+  color: var(--accent);
+  overflow: hidden;
+}
+
+body {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+}
+
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse 90% 50% at 50% 90%, #1a120088 0%, transparent 70%),
+    radial-gradient(ellipse 60% 60% at 50% 100%, #c9a84c0d 0%, transparent 60%);
+  pointer-events:none; z-index:0;
+}
+
+body::after {
+  content:'';
+  position:fixed; inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  opacity:.45; pointer-events:none; z-index:1;
+}
+
+header {
+  position:relative; z-index:12;
+  text-align:center;
+  margin-bottom:10px;
+}
+header h1 {
+  font-family:'Cormorant Garamond', serif;
+  font-size:clamp(1.4rem,3.5vw,2.4rem);
+  font-weight:300;
+  letter-spacing:.3em;
+  color:var(--accent);
+  text-shadow:0 0 40px var(--glow);
+}
+header p {
+  font-size:.55rem;
+  letter-spacing:.22em;
+  color:#ffffff33;
+  margin-top:3px;
+  text-transform:uppercase;
+}
+
+#scene {
+  position:relative; z-index:10;
+  perspective:1000px;
+  perspective-origin:50% 10%;
+}
+#piano-wrap {
+  transform:rotateX(46deg) rotateZ(-0.5deg);
+  transform-style:preserve-3d;
+  filter:drop-shadow(0 70px 90px #000000dd);
+}
+#piano-body {
+  position:relative;
+  background:linear-gradient(180deg,#1e1a10 0%,#0d0b07 100%);
+  border-radius:16px 16px 6px 6px;
+  padding:18px 22px 24px;
+  box-shadow:
+    0 0 0 2px #3a3020,
+    0 0 0 4px #090800,
+    0 8px 0 4px #2a2010,
+    0 16px 0 4px #1a1408,
+    0 28px 40px #000;
+  transform-style:preserve-3d;
+}
+#piano-body::before {
+  content:'';
+  position:absolute; top:0; left:8%; right:8%; height:1px;
+  background:linear-gradient(90deg,transparent,#ffffff1a,var(--accent2)33,#ffffff1a,transparent);
+}
+
+#keys {
+  position:relative;
+  display:flex;
+  align-items:flex-start;
+  height:130px;
+  user-select:none;
+  overflow:visible;
+}
+
+.wkey {
+  position:relative;
+  flex-shrink:0;
+  width:20px;
+  height:125px;
+  background:linear-gradient(180deg,#eae5db 0%,#f7f3ed 8%,#faf7f2 60%,#eae5db 100%);
+  border:1px solid #c0b8a8;
+  border-top:none;
+  border-radius:0 0 4px 4px;
+  margin:0 0.7px;
+  cursor:pointer;
+  transform-origin:top center;
+  transition:transform .07s ease,background .07s ease,box-shadow .07s ease;
+  box-shadow:
+    inset 0 -3px 6px #00000020,
+    inset 1px 0 0 #ffffff77,
+    0 4px 8px #00000044,
+    0 8px 16px #00000022;
+  z-index:1;
+}
+.wkey:hover {
+  background:linear-gradient(180deg,#fffdf8 0%,#fff 60%,#f0ece0 100%);
+}
+.wkey.active {
+  transform:rotateX(5deg);
+  background:linear-gradient(180deg,#fff9e4 0%,#ffed9a 40%,#f5d060 100%);
+  box-shadow:
+    inset 0 4px 10px #c9a84c44,
+    0 0 18px #c9a84c33,
+    0 2px 4px #00000077;
+}
+.note-label {
+  position:absolute;
+  bottom:4px; left:50%; transform:translateX(-50%);
+  font-size:.38rem;
+  letter-spacing:.03em;
+  color:#00000033;
+  pointer-events:none;
+  white-space:nowrap;
+}
+.wkey.active .note-label { color:#c9a84c88; }
+
+.bkey {
+  position:absolute;
+  width:13px;
+  height:80px;
+  background:linear-gradient(180deg,#2a2318 0%,#1a1610 30%,#0c0a07 80%,#1a1610 100%);
+  border-radius:0 0 3px 3px;
+  cursor:pointer;
+  transform-origin:top center;
+  z-index:2;
+  top:0;
+  transition:transform .07s ease,box-shadow .07s ease;
+  box-shadow:
+    inset 1px 0 0 #ffffff09,
+    inset -1px 0 0 #00000077,
+    0 6px 10px #000000aa,
+    0 12px 20px #00000066,
+    2px 0 0 #3a3020;
+}
+.bkey::before {
+  content:'';
+  position:absolute;
+  top:3px; left:2px; right:2px; height:38%;
+  background:linear-gradient(180deg,#3a3020 0%,transparent 100%);
+  border-radius:2px 2px 0 0;
+  opacity:.55;
+}
+.bkey::after {
+  content:'';
+  position:absolute;
+  top:2px; left:2px; right:2px; height:2px;
+  background:linear-gradient(90deg,transparent,#ffffff14,transparent);
+  border-radius:2px;
+}
+.bkey:hover {
+  box-shadow:
+    inset 1px 0 0 #ffffff11,
+    inset -1px 0 0 #00000077,
+    0 6px 10px #000000aa,
+    0 0 10px #c9a84c1a,
+    2px 0 0 #3a3020;
+}
+.bkey.active {
+  transform:rotateX(6deg);
+  background:linear-gradient(180deg,#3a2800 0%,#c9a84c 60%,#a07830 100%);
+  box-shadow:
+    inset 0 2px 8px #00000077,
+    0 0 18px #c9a84c66,
+    0 4px 8px #000000aa;
+}
+
+#piano-front {
+  height:24px;
+  background:linear-gradient(180deg,#1c1710,#0d0b07);
+  border-radius:0 0 6px 6px;
+  margin-top:-1px;
+  border-top:1px solid #3a3020;
+  position:relative;
+}
+#piano-front::after {
+  content:'GRAND';
+  position:absolute;
+  left:50%; transform:translateX(-50%);
+  top:7px;
+  font-family:'Cormorant Garamond',serif;
+  font-size:.6rem;
+  letter-spacing:.55em;
+  color:var(--accent);
+  opacity:.65;
+}
+
+.leg {
+  position:absolute;
+  bottom:-34px;
+  width:12px; height:36px;
+  background:linear-gradient(90deg,#1a1508,#2a2010,#1a1508);
+  border-radius:0 0 3px 3px;
+  box-shadow:0 8px 16px #000000aa;
+}
+.leg-l { left:24px; }
+.leg-r { right:24px; }
+
+#controls {
+  position:relative; z-index:12;
+  margin-top:28px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
+
+.ctrl-row {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+
+.btn {
+  background:transparent;
+  border:1px solid #c9a84c55;
+  color:var(--accent);
+  font-family:'Space Mono',monospace;
+  font-size:.58rem;
+  letter-spacing:.14em;
+  padding:7px 16px;
+  cursor:pointer;
+  border-radius:2px;
+  text-transform:uppercase;
+  transition:all .2s;
+  position:relative;
+  overflow:hidden;
+}
+.btn::before {
+  content:'';
+  position:absolute; inset:0;
+  background:var(--accent);
+  opacity:0;
+  transition:opacity .2s;
+}
+.btn:hover { border-color:var(--accent); box-shadow:0 0 16px var(--glow); }
+.btn:hover::before { opacity:.08; }
+.btn:active::before { opacity:.18; }
+.btn.playing { border-color:var(--accent2); box-shadow:0 0 24px #c9a84c55; }
+
+#upload-label {
+  display:flex; align-items:center; gap:7px;
+  padding:7px 16px;
+  border:1px dashed #c9a84c33;
+  color:#c9a84c77;
+  font-size:.58rem;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  cursor:pointer;
+  border-radius:2px;
+  transition:all .22s;
+}
+#upload-label:hover { border-color:var(--accent); color:var(--accent); box-shadow:0 0 16px var(--glow); }
+#file-input { display:none; }
+
+.dropdown-wrap {
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.dropdown-label {
+  font-size:.46rem;
+  letter-spacing:.18em;
+  color:#c9a84c55;
+  text-transform:uppercase;
+  padding-left:2px;
+}
+#midi-out-select, #midi-in-select {
+  appearance:none;
+  background:#0d0b07;
+  border:1px solid #c9a84c44;
+  color:var(--accent);
+  font-family:'Space Mono',monospace;
+  font-size:.56rem;
+  letter-spacing:.1em;
+  padding:6px 32px 6px 12px;
+  border-radius:2px;
+  cursor:pointer;
+  transition:border-color .2s, box-shadow .2s;
+  min-width:180px;
+  outline:none;
+}
+#midi-out-select:hover, #midi-out-select:focus,
+#midi-in-select:hover, #midi-in-select:focus {
+  border-color:var(--accent);
+  box-shadow:0 0 14px var(--glow);
+}
+#midi-out-select option, #midi-in-select option {
+  background:#0d0b07;
+  color:var(--accent);
+}
+#midi-in-indicator {
+  display:inline-block;
+  width:6px; height:6px;
+  border-radius:50%;
+  background:#c9a84c22;
+  border:1px solid #c9a84c44;
+  margin-left:6px;
+  vertical-align:middle;
+  transition:background .15s, box-shadow .15s;
+}
+#midi-in-indicator.active {
+  background:#c9a84c;
+  box-shadow:0 0 8px #c9a84caa;
+}
+.dropdown-arrow {
+  position:absolute;
+  right:10px; bottom:9px;
+  pointer-events:none;
+  font-size:.6rem;
+  color:#c9a84c88;
+}
+
+.knob-wrap {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+}
+.knob-label {
+  font-size:.46rem;
+  letter-spacing:.18em;
+  color:#c9a84c55;
+  text-transform:uppercase;
+}
+#volume-knob {
+  width:52px; height:52px;
+  cursor:grab;
+  touch-action:none;
+}
+#volume-knob:active { cursor:grabbing; }
+.knob-svg { width:100%; height:100%; overflow:visible; }
+#knob-val {
+  font-size:.46rem;
+  letter-spacing:.1em;
+  color:#c9a84c66;
+  text-align:center;
+  min-width:40px;
+}
+
+#status {
+  font-size:.55rem;
+  letter-spacing:.12em;
+  color:#ffffff22;
+  text-transform:uppercase;
+  height:14px;
+  transition:color .3s;
+}
+#status.active { color:var(--accent); }
+
+#progress-wrap {
+  width:340px;
+  height:2px;
+  background:#ffffff08;
+  border-radius:1px;
+  overflow:hidden;
+}
+#progress-bar {
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#c9a84c,#e8c87a);
+  box-shadow:0 0 8px var(--glow);
+  transition:width .1s linear;
+}
+
+#pedals {
+  display:flex; gap:14px;
+  margin-top:4px;
+}
+.pedal {
+  width:22px; height:9px;
+  background:linear-gradient(180deg,#2a2010,#1a1208);
+  border-radius:3px;
+  border:1px solid #3a2e18;
+  box-shadow:0 3px 6px #000000aa;
+  cursor:pointer;
+  transition:transform .1s;
+}
+.pedal:active { transform:scaleY(.82); }
+
+/* TWO CANVASES: Golden Falling Notes + Original Particle Sparks */
+#falling-canvas, #particle-canvas {
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+  z-index:20;
+}
+#particle-canvas { z-index:21; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GRAND PIANO</h1>
+  <p>88-key · MIDI synced to falling stars</p>
+</header>
+
+<div id="scene">
+  <div id="piano-wrap">
+    <div id="piano-body">
+      <div id="keys"></div>
+      <div id="piano-front"></div>
+      <div class="leg leg-l"></div>
+      <div class="leg leg-r"></div>
+    </div>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="ctrl-row">
+    <label id="upload-label" for="file-input">♩ Lataa MIDI</label>
+    <input type="file" id="file-input" accept=".mid,.midi">
+    <button class="btn" id="play-btn">▶ Toista</button>
+    <button class="btn" id="stop-btn">■ Pysäytä</button>
+    <div class="dropdown-wrap">
+      <span class="dropdown-label">MIDI In <span id="midi-in-indicator"></span></span>
+      <select id="midi-in-select"><option value="">— Ei MIDI-tuloa —</option></select>
+      <span class="dropdown-arrow">▾</span>
+    </div>
+    <div class="dropdown-wrap">
+      <span class="dropdown-label">MIDI Out</span>
+      <select id="midi-out-select"><option value="">— Ei MIDI-lähtöä —</option></select>
+      <span class="dropdown-arrow">▾</span>
+    </div>
+    <div class="knob-wrap">
+      <span class="knob-label">Volume</span>
+      <div id="volume-knob">
+        <svg class="knob-svg" viewBox="0 0 52 52">
+          <defs><radialGradient id="kg" cx="40%" cy="30%" r="70%"><stop offset="0%" stop-color="#3a3020"/><stop offset="100%" stop-color="#0d0b07"/></radialGradient><filter id="kglow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+          <circle cx="26" cy="26" r="23" fill="none" stroke="#3a3020" stroke-width="2.5"/>
+          <path id="arc-bg" fill="none" stroke="#1a1610" stroke-width="3" stroke-linecap="round"/>
+          <path id="arc-fill" fill="none" stroke="#c9a84c" stroke-width="3" stroke-linecap="round" filter="url(#kglow)"/>
+          <circle cx="26" cy="26" r="17" fill="url(#kg)" stroke="#3a3020" stroke-width="1"/>
+          <ellipse cx="21" cy="20" rx="6" ry="4" fill="#ffffff06" transform="rotate(-20 21 20)"/>
+          <circle id="knob-dot" cx="26" cy="11" r="2.5" fill="#c9a84c" filter="url(#kglow)"/>
+        </svg>
+      </div>
+      <div id="knob-val">75%</div>
+    </div>
+  </div>
+  <div id="status">Lataa MIDI-tiedosto aloittaaksesi</div>
+  <div id="progress-wrap"><div id="progress-bar"></div></div>
+  <div id="pedals"><div class="pedal" title="Una Corda"></div><div class="pedal" title="Sostenuto"></div><div class="pedal" title="Sustain"></div></div>
+</div>
+
+<canvas id="falling-canvas"></canvas>
+<canvas id="particle-canvas"></canvas>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// 88-KEY PIANO LAYOUT
+// ═══════════════════════════════════════════════════════════════
+const keysContainer = document.getElementById('keys');
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const BLACK_SET = new Set(['C#','D#','F#','G#','A#']);
+const WHITE_KEYS = [];
+let whiteCount = 0;
+for (let midi = 21; midi <= 108; midi++) {
+  const note = NOTE_NAMES[midi % 12];
+  if (!BLACK_SET.has(note)) WHITE_KEYS.push({ midi, note, whiteIndex: whiteCount++ });
+}
+const KEY_W = 20, KEY_GAP = 1.4, KEY_STEP = KEY_W + KEY_GAP;
+WHITE_KEYS.forEach(k => {
+  const el = document.createElement('div'); el.className = 'wkey'; el.dataset.midi = k.midi;
+  const label = document.createElement('span'); label.className = 'note-label';
+  if (k.note === 'C') label.textContent = 'C' + Math.floor((k.midi - 12) / 12);
+  el.appendChild(label); keysContainer.appendChild(el);
+});
+for (let midi = 21; midi <= 108; midi++) {
+  const note = NOTE_NAMES[midi % 12];
+  if (!BLACK_SET.has(note)) continue;
+  let prevWhiteIdx = -1;
+  for (let m = midi - 1; m >= 21; m--) {
+    if (!BLACK_SET.has(NOTE_NAMES[m % 12])) {
+      const wk = WHITE_KEYS.find(w => w.midi === m);
+      if (wk) { prevWhiteIdx = wk.whiteIndex; break; }
+    }
+  }
+  if (prevWhiteIdx < 0) continue;
+  const el = document.createElement('div'); el.className = 'bkey'; el.dataset.midi = midi;
+  el.style.left = (prevWhiteIdx * KEY_STEP + KEY_W - 6.5) + 'px';
+  keysContainer.appendChild(el);
+}
+keysContainer.style.width = (whiteCount * KEY_STEP - KEY_GAP) + 'px';
+
+// ═══════════════════════════════════════════════════════════════
+// ORIGINAL PARTICLE EFFECT (Sparkles on key hit)
+// ═══════════════════════════════════════════════════════════════
+const particleCanvas = document.getElementById('particle-canvas');
+let pCtx = particleCanvas.getContext('2d');
+let particles = [];
+function resizeParticleCanvas() { particleCanvas.width = innerWidth; particleCanvas.height = innerHeight; }
+resizeParticleCanvas(); window.addEventListener('resize', resizeParticleCanvas);
+
+function spawnParticleAt(x, y) {
+  for (let i = 0; i < 14; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 3.2,
+      vy: -Math.random() * 5 - 1.5,
+      life: 1, decay: Math.random() * 0.02 + 0.014,
+      size: Math.random() * 3 + 1.2,
+      hue: Math.random() > 0.4 ? '#c9a84c' : '#ffdd99'
+    });
+  }
+}
+
+function animateParticles() {
+  pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  particles = particles.filter(p => p.life > 0);
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life -= p.decay;
+    pCtx.beginPath();
+    pCtx.arc(p.x, p.y, p.size * (0.5 + p.life * 0.5), 0, Math.PI * 2);
+    pCtx.fillStyle = p.hue + Math.floor(p.life * 200).toString(16).padStart(2, '0');
+    pCtx.fill();
+  }
+  requestAnimationFrame(animateParticles);
+}
+animateParticles();
+
+// ═══════════════════════════════════════════════════════════════
+// GOLDEN FALLING NOTES (top to key) - with hit callback
+// ═══════════════════════════════════════════════════════════════
+const fallCanvas = document.getElementById('falling-canvas');
+let fCtx = fallCanvas.getContext('2d');
+let fallingNotes = [];
+let keyRects = new Map();
+
+function updateKeyRects() {
+  keyRects.clear();
+  document.querySelectorAll('.wkey, .bkey').forEach(el => {
+    const midi = parseInt(el.dataset.midi);
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0) keyRects.set(midi, rect);
+  });
+}
+
+// Spawn a golden note with a callback when it hits the key
+// noteDurationMs: optional duration of the note (for tail length)
+function spawnGoldenNoteWithCallback(midi, onHitCallback, noteDurationMs) {
+  const rect = keyRects.get(midi);
+  if (!rect) return null;
+  const startY = 5;
+  const targetY = rect.top + rect.height * 0.55;
+  const dist = targetY - startY;
+  // Fixed travel time = STAR_FALL_DURATION ms → derive speed in px/frame
+  const speed = dist / (STAR_FALL_DURATION / (1000/60));
+  const noteObj = {
+    x: rect.left + rect.width/2, y: startY, targetKey: midi,
+    radius: 8, alpha: 1, hit: false, speed: Math.max(1.2, speed),
+    rotation: Math.random() * Math.PI * 2, rotSpeed: 0.025 + Math.random()*0.02,
+    onHit: onHitCallback,
+    tailLength: noteDurationMs ? Math.max(30, Math.min(300, noteDurationMs * 0.18)) : 60,
+    trail: []   // stores recent {x,y} positions for tail
+  };
+  fallingNotes.push(noteObj);
+  return noteObj;
+}
+
+function updateFallingNotes() {
+  for (let i=0; i<fallingNotes.length; i++) {
+    const n = fallingNotes[i];
+    if (n.hit) {
+      n.alpha -= 0.045; n.radius += 0.4;
+      // Shrink tail from origin end
+      if (n.trail.length > 0) n.trail.shift();
+      if (n.alpha <= 0) { fallingNotes.splice(i,1); i--; }
+      continue;
+    }
+    n.y += n.speed; n.rotation += n.rotSpeed;
+    // Record trail point every frame
+    n.trail.push({x: n.x, y: n.y});
+    const maxTrail = Math.ceil(n.tailLength);
+    if (n.trail.length > maxTrail) n.trail.shift();
+
+    const curRect = keyRects.get(n.targetKey);
+    if (curRect && n.y >= curRect.top + curRect.height * 0.55) {
+      n.hit = true;
+      n.impactX = curRect.left + curRect.width/2;
+      n.impactY = curRect.top + 5;
+      n.sparkle = 1.0;  // sparkle intensity
+      if (n.onHit) n.onHit(n.targetKey);
+      spawnParticleAt(curRect.left + curRect.width/2, curRect.top + 5);
+      continue;
+    }
+    if (n.y > window.innerHeight + 80) { fallingNotes.splice(i,1); i--; }
+  }
+}
+
+function drawFallingNotes() {
+  fCtx.clearRect(0, 0, fallCanvas.width, fallCanvas.height);
+  for (const n of fallingNotes) {
+    if (n.hit) {
+      // Draw shrinking tail during fade-out
+      if (n.trail && n.trail.length > 1) {
+        for (let t = 0; t < n.trail.length - 1; t++) {
+          const p0 = n.trail[t], p1 = n.trail[t+1];
+          const frac = t / n.trail.length;
+          const tailAlpha = frac * n.alpha * 0.7;
+          fCtx.beginPath();
+          fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+          fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+          fCtx.lineWidth = 1.5 + frac * 3;
+          fCtx.shadowBlur = 8; fCtx.shadowColor = '#c9a84c';
+          fCtx.stroke();
+        }
+      }
+      // Impact burst + sparkle ring at key contact
+      const ix = n.impactX || n.x, iy = n.impactY || n.y;
+      fCtx.save();
+      fCtx.shadowBlur = 28 * n.alpha; fCtx.shadowColor = '#ffe066';
+      fCtx.beginPath(); fCtx.arc(ix, iy, n.radius * (1 - n.alpha*0.3), 0, Math.PI*2);
+      fCtx.fillStyle = `rgba(255, 200, 80, ${n.alpha * 0.85})`; fCtx.fill();
+      // Sparkle ring
+      if (n.alpha > 0.3) {
+        const ringR = n.radius * (2.5 - n.alpha);
+        fCtx.beginPath(); fCtx.arc(ix, iy, ringR, 0, Math.PI*2);
+        fCtx.strokeStyle = `rgba(255,240,140,${n.alpha * 0.6})`; 
+        fCtx.lineWidth = 1.5; fCtx.stroke();
+        // 8 spark lines radiating outward
+        for (let s = 0; s < 8; s++) {
+          const ang = (Math.PI * 2 / 8) * s + (1-n.alpha) * 0.5;
+          const r1 = n.radius * 1.2, r2 = ringR * 1.3 * (1 - n.alpha * 0.4);
+          fCtx.beginPath();
+          fCtx.moveTo(ix + Math.cos(ang)*r1, iy + Math.sin(ang)*r1);
+          fCtx.lineTo(ix + Math.cos(ang)*r2, iy + Math.sin(ang)*r2);
+          fCtx.strokeStyle = `rgba(255,230,100,${n.alpha * 0.55})`;
+          fCtx.lineWidth = 1; fCtx.stroke();
+        }
+      }
+      fCtx.restore();
+    } else {
+      // Draw glowing tail behind the star (trail points, oldest=faintest)
+      fCtx.save();
+      if (n.trail && n.trail.length > 1) {
+        for (let t = 0; t < n.trail.length - 1; t++) {
+          const p0 = n.trail[t], p1 = n.trail[t+1];
+          const frac = t / n.trail.length;
+          const tailAlpha = frac * 0.75;
+          const w = 1.2 + frac * 4;
+          fCtx.beginPath();
+          fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+          fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+          fCtx.lineWidth = w;
+          fCtx.shadowBlur = 8 * frac; fCtx.shadowColor = '#c9a84c88';
+          fCtx.stroke();
+        }
+        // Bright core of tail (innermost segment)
+        const tp = n.trail[n.trail.length-1];
+        fCtx.beginPath();
+        fCtx.moveTo(tp.x, tp.y); fCtx.lineTo(n.x, n.y);
+        fCtx.strokeStyle = 'rgba(255,245,180,0.9)';
+        fCtx.lineWidth = 2.5;
+        fCtx.shadowBlur = 14; fCtx.shadowColor = '#ffe080';
+        fCtx.stroke();
+      }
+      fCtx.restore();
+      // Draw the star itself
+      fCtx.save(); fCtx.shadowBlur = 16; fCtx.shadowColor = '#c9a84c';
+      fCtx.translate(n.x, n.y); fCtx.rotate(n.rotation);
+      fCtx.beginPath();
+      for (let i=0;i<10;i++) {
+        let rad = i%2===0 ? n.radius : n.radius*0.45;
+        let ang = (Math.PI*2/10)*i;
+        let xp = Math.cos(ang)*rad, yp = Math.sin(ang)*rad;
+        if(i===0) fCtx.moveTo(xp,yp); else fCtx.lineTo(xp,yp);
+      }
+      fCtx.closePath();
+      fCtx.fillStyle = '#f5d742'; fCtx.fill();
+      fCtx.beginPath(); fCtx.arc(0,0,n.radius*0.45,0,Math.PI*2);
+      fCtx.fillStyle = '#ffecb0'; fCtx.fill();
+      fCtx.restore();
+    }
+  }
+}
+
+function resizeFallCanvas() { fallCanvas.width = innerWidth; fallCanvas.height = innerHeight; updateKeyRects(); }
+window.addEventListener('resize', resizeFallCanvas);
+resizeFallCanvas();
+
+function animateFallingLoop() { updateKeyRects(); updateFallingNotes(); drawFallingNotes(); requestAnimationFrame(animateFallingLoop); }
+animateFallingLoop();
+
+// ═══════════════════════════════════════════════════════════════
+// KEY VISUAL + AUDIO + MIDI OUT (for manual play)
+// ═══════════════════════════════════════════════════════════════
+function pressKeyVisual(midi) {
+  const el = document.querySelector(`[data-midi="${midi}"]`);
+  if (el) el.classList.add('active');
+}
+function releaseKeyVisual(midi) {
+  const el = document.querySelector(`[data-midi="${midi}"]`);
+  if (el) el.classList.remove('active');
+}
+
+// Manual play: immediate sound + golden note
+function playManualNote(midi, vel=100) {
+  pressKeyVisual(midi);
+  playTone(midi, vel);
+  sendMidiNote(midi, vel);
+  spawnGoldenNoteWithCallback(midi, (m) => {
+    spawnParticleAtFromMidi(m);
+  }, 600);
+  // schedule release after short duration
+  setTimeout(() => { releaseKeyVisual(midi); sendMidiNoteOff(midi); }, 600);
+}
+
+function spawnParticleAtFromMidi(midi) {
+  const rect = keyRects.get(midi);
+  if (rect) spawnParticleAt(rect.left + rect.width/2, rect.top + 5);
+}
+
+document.querySelectorAll('.wkey, .bkey').forEach(el => {
+  const midi = +el.dataset.midi;
+  el.addEventListener('mousedown', () => { playManualNote(midi, 100); });
+  el.addEventListener('touchstart', e => { e.preventDefault(); playManualNote(midi, 100); }, {passive:false});
+});
+
+let audioCtx = null, masterGain = null, volumeLevel = 0.75;
+function getAudioCtx() { if (!audioCtx) { audioCtx = new (window.AudioContext||window.webkitAudioContext)(); masterGain = audioCtx.createGain(); masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); masterGain.connect(audioCtx.destination); } return audioCtx; }
+function setVolume(v) { volumeLevel = Math.max(0, Math.min(1, v)); if(masterGain) masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); }
+function playTone(midi, vel=100, dur=0.65) {
+  const ctx = getAudioCtx(); const freq = 440 * Math.pow(2, (midi-69)/12);
+  const osc1=ctx.createOscillator(), osc2=ctx.createOscillator(), gain=ctx.createGain(), gain2=ctx.createGain();
+  osc1.type='triangle'; osc2.type='sine';
+  osc1.frequency.setValueAtTime(freq,ctx.currentTime); osc2.frequency.setValueAtTime(freq*2.004,ctx.currentTime);
+  const v = vel/127*0.3;
+  gain.gain.setValueAtTime(v,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+dur);
+  gain2.gain.setValueAtTime(v*0.28,ctx.currentTime); gain2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+dur*0.6);
+  osc1.connect(gain); gain.connect(masterGain||ctx.destination);
+  osc2.connect(gain2); gain2.connect(masterGain||ctx.destination);
+  osc1.start(); osc1.stop(ctx.currentTime+dur+0.1); osc2.start(); osc2.stop(ctx.currentTime+dur*0.6+0.08);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VOLUME KNOB - FULL 270° RANGE
+// ═══════════════════════════════════════════════════════════════
+(function() {
+  const knob = document.getElementById('volume-knob');
+  const dot = document.getElementById('knob-dot');
+  const arcFill = document.getElementById('arc-fill');
+  const arcBg = document.getElementById('arc-bg');
+  const valEl = document.getElementById('knob-val');
+
+  const CX = 26, CY = 26, R = 19;
+  const START_DEG = 225, TOTAL_DEG = 270, MAX_DEG = START_DEG + TOTAL_DEG;
+  function polarToXY(deg) { const r=(deg-90)*Math.PI/180; return { x:CX+R*Math.cos(r), y:CY+R*Math.sin(r) }; }
+  function arcPath(s,e) { const a=polarToXY(s), b=polarToXY(e); return `M${a.x.toFixed(2)},${a.y.toFixed(2)} A${R},${R} 0 ${(e-s)>180?1:0} 1 ${b.x.toFixed(2)},${b.y.toFixed(2)}`; }
+  function render(v) { const deg=START_DEG+v*TOTAL_DEG; arcBg.setAttribute('d',arcPath(START_DEG,MAX_DEG)); if(v>0.005) arcFill.setAttribute('d',arcPath(START_DEG,deg)); else arcFill.setAttribute('d',''); const d=polarToXY(deg); dot.setAttribute('cx',d.x.toFixed(2)); dot.setAttribute('cy',d.y.toFixed(2)); valEl.textContent=Math.round(v*100)+'%'; }
+  render(volumeLevel);
+  let drag=false,startY=0,startV=0;
+  knob.addEventListener('mousedown',e=>{drag=true;startY=e.clientY;startV=volumeLevel;e.preventDefault();});
+  window.addEventListener('mousemove',e=>{if(!drag)return;let v=Math.min(1,Math.max(0,startV+(startY-e.clientY)/30));setVolume(v);render(v);});
+  window.addEventListener('mouseup',()=>drag=false);
+  knob.addEventListener('touchstart',e=>{drag=true;startY=e.touches[0].clientY;startV=volumeLevel;e.preventDefault();},{passive:false});
+  window.addEventListener('touchmove',e=>{if(!drag)return;let v=Math.min(1,Math.max(0,startV+(startY-e.touches[0].clientY)/30));setVolume(v);render(v);});
+  window.addEventListener('touchend',()=>drag=false);
+  knob.addEventListener('wheel',e=>{e.preventDefault();let v=Math.min(1,Math.max(0,volumeLevel-e.deltaY/400));setVolume(v);render(v);},{passive:false});
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// MIDI OUT
+// ═══════════════════════════════════════════════════════════════
+let midiAccess=null, midiOutPort=null, midiInPort=null;
+let midiOutSelect=document.getElementById('midi-out-select');
+let midiInSelect=document.getElementById('midi-in-select');
+let midiInIndicator=document.getElementById('midi-in-indicator');
+
+async function initMidi(){
+  if(!navigator.requestMIDIAccess)return;
+  try{
+    midiAccess=await navigator.requestMIDIAccess();
+    populateMidiOutputs();
+    populateMidiInputs();
+    midiAccess.onstatechange=()=>{ populateMidiOutputs(); populateMidiInputs(); };
+  }catch(e){}
+}
+function populateMidiOutputs(){
+  const prev=midiOutSelect.value;
+  while(midiOutSelect.options.length>1)midiOutSelect.remove(1);
+  midiAccess.outputs.forEach((port,id)=>{
+    const opt=document.createElement('option'); opt.value=id; opt.textContent=port.name;
+    midiOutSelect.appendChild(opt);
+  });
+  if(prev)midiOutSelect.value=prev;
+  updateMidiOutPort();
+}
+function populateMidiInputs(){
+  const prev=midiInSelect.value;
+  while(midiInSelect.options.length>1)midiInSelect.remove(1);
+  midiAccess.inputs.forEach((port,id)=>{
+    const opt=document.createElement('option'); opt.value=id; opt.textContent=port.name;
+    midiInSelect.appendChild(opt);
+  });
+  if(prev)midiInSelect.value=prev;
+  updateMidiInPort();
+}
+midiOutSelect.addEventListener('change',updateMidiOutPort);
+midiInSelect.addEventListener('change',updateMidiInPort);
+function updateMidiOutPort(){ midiOutPort=midiOutSelect.value&&midiAccess?midiAccess.outputs.get(midiOutSelect.value):null; }
+function updateMidiInPort(){
+  if(midiInPort){ midiInPort.onmidimessage=null; }
+  midiInPort=midiInSelect.value&&midiAccess?midiAccess.inputs.get(midiInSelect.value):null;
+  if(midiInPort){ midiInPort.onmidimessage=onMidiInMessage; }
+}
+
+let midiInFlashTimeout=null;
+function flashMidiIn(){
+  midiInIndicator.classList.add('active');
+  clearTimeout(midiInFlashTimeout);
+  midiInFlashTimeout=setTimeout(()=>midiInIndicator.classList.remove('active'),120);
+}
+
+function onMidiInMessage(e){
+  const [status,note,velocity]=e.data;
+  const type=status&0xF0;
+  if(type===0x90&&velocity>0){
+    flashMidiIn();
+    pressKeyVisual(note);
+    playTone(note,velocity);
+    spawnGoldenNoteWithCallback(note,(m)=>spawnParticleAtFromMidi(m),500);
+    setTimeout(()=>releaseKeyVisual(note),500);
+  } else if(type===0x80||(type===0x90&&velocity===0)){
+    releaseKeyVisual(note);
+  }
+}
+
+function sendMidiNote(midi,vel=100){ if(midiOutPort)midiOutPort.send([0x90,midi,vel]); }
+function sendMidiNoteOff(midi){ if(midiOutPort)midiOutPort.send([0x80,midi,0]); }
+initMidi();
+
+// ═══════════════════════════════════════════════════════════════
+// MIDI PARSER & PLAYBACK (SOUND TRIGGERED ON STAR IMPACT)
+// ═══════════════════════════════════════════════════════════════
+function parseMidi(buffer){ const dv=new DataView(buffer); let pos=0; const ru32=()=>{const v=dv.getUint32(pos);pos+=4;return v;}, ru16=()=>{const v=dv.getUint16(pos);pos+=2;return v;}, ru8=()=>dv.getUint8(pos++), rVLQ=()=>{let v=0,b;do{b=ru8();v=(v<<7)|(b&0x7F);}while(b&0x80);return v;}; if(ru32()!==0x4D546864)throw new Error('Ei MIDI'); const hLen=ru32(),format=ru16(),numTracks=ru16(),timeDivision=ru16(); pos=8+hLen; const tracks=[]; for(let t=0;t<numTracks;t++){ if(ru32()!==0x4D54726B)continue; const tEnd=pos+ru32(); const evs=[]; let tick=0,last=0; while(pos<tEnd){ tick+=rVLQ(); let sb=ru8(); if(sb&0x80){last=sb;}else{pos--;sb=last;} const type=sb>>4; if(type===0x9){const n=ru8(),v=ru8();evs.push({tick,type:v>0?'noteOn':'noteOff',note:n,velocity:v});} else if(type===0x8){const n=ru8(),v=ru8();evs.push({tick,type:'noteOff',note:n,velocity:v});} else if(type===0xA||type===0xB||type===0xE){ru8();ru8();} else if(type===0xC||type===0xD){ru8();} else if(sb===0xFF){const mt=ru8(),ml=rVLQ(); if(mt===0x51){const a=ru8(),b=ru8(),c=ru8();evs.push({tick,type:'tempo',bpm:Math.round(60000000/(a*65536+b*256+c))});} else pos+=ml;} else if(sb===0xF0||sb===0xF7){pos+=rVLQ();}} pos=tEnd; tracks.push(evs);} return {timeDivision,tracks};}
+function flattenTracks(midi){ const tpb=midi.timeDivision; const all=[]; midi.tracks.forEach(tr=>tr.forEach(e=>all.push({...e}))); all.sort((a,b)=>a.tick-b.tick||(a.type==='noteOff'?-1:0)); const tempos=all.filter(e=>e.type==='tempo'); function ticksToMs(tick){ let ms=0,t0=0,bpm0=120; for(const tm of tempos){ if(tm.tick>=tick)break; ms+=(tm.tick-t0)/tpb*(60000/bpm0); t0=tm.tick; bpm0=tm.bpm;} ms+=(tick-t0)/tpb*(60000/bpm0); return ms;} return all.filter(e=>e.type==='noteOn'||e.type==='noteOff').map(e=>({...e,ms:ticksToMs(e.tick)}));}
+let midiEvents=null, playTimers=[], isPlaying=false, totalDurationMs=0, playStartTime=null, progressInterval;
+const playBtn=document.getElementById('play-btn'), stopBtn=document.getElementById('stop-btn'), statusEl=document.getElementById('status'), progressBar=document.getElementById('progress-bar');
+document.getElementById('file-input').addEventListener('change', function(e){ const file=e.target.files[0]; if(!file)return; const reader=new FileReader(); reader.onload=function(ev){ try{ const midi=parseMidi(ev.target.result); midiEvents=flattenTracks(midi); if(!midiEvents.length){setStatus('Ei nuotteja',false);return;} totalDurationMs=Math.max(...midiEvents.map(e=>e.ms)); setStatus(file.name+' — '+midiEvents.length+' tapahtumaa',true); playBtn.classList.add('playing'); }catch(err){setStatus('Virhe: '+err.message,false);} }; reader.readAsArrayBuffer(file); });
+function setStatus(msg,active){statusEl.textContent=msg;statusEl.className=active?'active':'';}
+
+// NEW: Playback with star drop delay
+const STAR_FALL_DURATION = 500; // milliseconds for star to fall from top to key
+
+function startPlayback() {
+  getAudioCtx();
+  isPlaying = true;
+  playStartTime = performance.now();
+  setStatus('▶ Toistetaan... (stars falling)', true);
+
+  // Build note durations: match each noteOn with its noteOff
+  const durations = new Map(); // index → durationMs
+  const openNotes = new Map(); // note → {idx, ms}
+  midiEvents.forEach((ev, idx) => {
+    if (ev.type === 'noteOn' && ev.velocity > 0) {
+      openNotes.set(ev.note, {idx, ms: ev.ms});
+    } else if (ev.type === 'noteOff' || (ev.type === 'noteOn' && ev.velocity === 0)) {
+      const open = openNotes.get(ev.note);
+      if (open) { durations.set(open.idx, ev.ms - open.ms); openNotes.delete(ev.note); }
+    }
+  });
+
+  midiEvents.forEach((ev, idx) => {
+    if (ev.type !== 'noteOn' || ev.velocity === 0) return;
+    const hitTime = ev.ms;
+    const spawnTime = Math.max(0, hitTime - STAR_FALL_DURATION);
+    const noteDur = durations.get(idx) || 400;
+
+    const spawnTimer = setTimeout(() => {
+      if (!isPlaying) return;
+      spawnGoldenNoteWithCallback(ev.note, (midi) => {
+        if (!isPlaying) return;
+        pressKeyVisual(midi);
+        playTone(midi, ev.velocity, Math.max(0.3, noteDur / 1000));
+        sendMidiNote(midi, ev.velocity);
+        setTimeout(() => {
+          releaseKeyVisual(midi);
+          sendMidiNoteOff(midi);
+        }, noteDur || 700);
+      }, noteDur);
+    }, spawnTime);
+    playTimers.push(spawnTimer);
+  });
+
+  // Schedule end of playback
+  playTimers.push(setTimeout(() => {
+    stopPlayback();
+    setStatus('✓ Toisto päättyi', true);
+  }, totalDurationMs + STAR_FALL_DURATION + 500));
+  
+  progressInterval = setInterval(() => {
+    const elapsed = performance.now() - playStartTime;
+    progressBar.style.width = Math.min(100, (elapsed / (totalDurationMs + STAR_FALL_DURATION)) * 100) + '%';
+  }, 50);
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  playTimers.forEach(clearTimeout);
+  playTimers = [];
+  clearInterval(progressInterval);
+  progressBar.style.width = '0%';
+  document.querySelectorAll('.wkey.active, .bkey.active').forEach(el => el.classList.remove('active'));
+  setStatus('■ Pysäytetty', false);
+}
+
+playBtn.addEventListener('click', () => {
+  if (!midiEvents) { setStatus('Lataa ensin MIDI-tiedosto', false); return; }
+  if (isPlaying) stopPlayback();
+  startPlayback();
+});
+stopBtn.addEventListener('click', stopPlayback);
+</script>
+</body>
+</html>
