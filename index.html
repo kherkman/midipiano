@@ -276,6 +276,17 @@ header p {
 .btn:active::before { opacity:.18; }
 .btn.playing { border-color:var(--accent2); box-shadow:0 0 24px #c9a84c55; }
 
+/* Clef-painikkeen valaistu/On-tila */
+.btn.active-clef {
+  border-color: var(--accent2);
+  color: #ffffff;
+  background: rgba(201, 168, 76, 0.2);
+  box-shadow: 
+    0 0 16px rgba(201, 168, 76, 0.6),
+    inset 0 0 10px rgba(255, 226, 160, 0.4);
+  text-shadow: 0 0 8px var(--accent2);
+}
+
 #upload-label {
   display:flex; align-items:center; gap:7px;
   padding:7px 16px;
@@ -291,6 +302,22 @@ header p {
 #upload-label:hover { border-color:var(--accent); color:var(--accent); box-shadow:0 0 16px var(--glow); }
 #file-input { display:none; }
 
+/* Vertikaalinen pino ja sointunäyttö */
+.midi-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(201, 168, 76, 0.25);
+  padding: 8px 14px;
+  border-radius: 4px;
+  background: rgba(13, 11, 7, 0.6);
+  backdrop-filter: blur(4px);
+}
+.dropdowns-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .dropdown-wrap {
   position:relative;
   display:flex;
@@ -348,6 +375,63 @@ header p {
   pointer-events:none;
   font-size:.6rem;
   color:#c9a84c88;
+}
+
+#chord-display-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(180deg, #16130c 0%, #0d0b07 100%);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  min-width: 140px;
+  height: 72px;
+  padding: 0 10px;
+  box-shadow: 0 0 16px var(--glow);
+}
+.chord-title {
+  font-size: 0.45rem;
+  letter-spacing: 0.15em;
+  color: rgba(201, 168, 76, 0.5);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+#chord-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.2rem;
+  font-weight: 300;
+  color: var(--accent2);
+  text-shadow: 0 0 10px var(--glow);
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Tietokoneen näppäimistön hotkey-tunnisteet koskettimilla */
+.hotkey-label {
+  position: absolute;
+  font-weight: 700;
+  color: var(--accent);
+  pointer-events: none;
+  text-transform: uppercase;
+  font-size: 0.55rem;
+  display: none;
+  opacity: 0.95;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+.wkey .hotkey-label {
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.bkey .hotkey-label {
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--accent2);
+}
+.show-hotkeys .hotkey-label {
+  display: block;
 }
 
 .knob-wrap {
@@ -454,16 +538,32 @@ header p {
     <input type="file" id="file-input" accept=".mid,.midi">
     <button class="btn" id="play-btn">▶ Toista</button>
     <button class="btn" id="stop-btn">■ Pysäytä</button>
-    <div class="dropdown-wrap">
-      <span class="dropdown-label">MIDI In <span id="midi-in-indicator"></span></span>
-      <select id="midi-in-select"><option value="">— Ei MIDI-tuloa —</option></select>
-      <span class="dropdown-arrow">▾</span>
+    <!-- Valaistu Clef-nuottiviivastokytkin (On oletuksena) -->
+    <button class="btn active-clef" id="clef-btn">𝄞 Viivasto</button>
+    
+    <!-- Päivitetty MIDI- ja sointupaneeli -->
+    <div class="midi-panel">
+      <div class="dropdowns-column">
+        <div class="dropdown-wrap">
+          <span class="dropdown-label">MIDI In <span id="midi-in-indicator"></span></span>
+          <select id="midi-in-select">
+            <option value="">— Ei MIDI-tuloa —</option>
+            <option value="keyboard">⌨ Tietokoneen näppäimistö</option>
+          </select>
+          <span class="dropdown-arrow">▾</span>
+        </div>
+        <div class="dropdown-wrap">
+          <span class="dropdown-label">MIDI Out</span>
+          <select id="midi-out-select"><option value="">— Ei MIDI-lähtöä —</option></select>
+          <span class="dropdown-arrow">▾</span>
+        </div>
+      </div>
+      <div id="chord-display-wrap">
+        <span class="chord-title">Sointu</span>
+        <div id="chord-name">—</div>
+      </div>
     </div>
-    <div class="dropdown-wrap">
-      <span class="dropdown-label">MIDI Out</span>
-      <select id="midi-out-select"><option value="">— Ei MIDI-lähtöä —</option></select>
-      <span class="dropdown-arrow">▾</span>
-    </div>
+
     <div class="knob-wrap">
       <span class="knob-label">Volume</span>
       <div id="volume-knob">
@@ -487,6 +587,138 @@ header p {
 
 <canvas id="falling-canvas"></canvas>
 <canvas id="particle-canvas"></canvas>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SOINNUN TUNNISTUS (Itsenäinen moduuli ilman CORS/palvelin-ongelmia)
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(function(global) {
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  
+  const chord_templates = {
+    // Triadit
+    "maj": [0, 4, 7],
+    "min": [0, 3, 7],
+    "aug": [0, 4, 8],
+    "dim": [0, 3, 6],
+    "sus2": [0, 2, 7],
+    "sus4": [0, 5, 7],
+    "5": [0, 7],
+    
+    // Septimisoinnut
+    "maj7": [0, 4, 7, 11],
+    "7": [0, 4, 7, 10],
+    "min7": [0, 3, 7, 10],
+    "min/maj7": [0, 3, 7, 11],
+    "aug7": [0, 4, 8, 10],
+    "aug/maj7": [0, 4, 8, 11],
+    "dim7": [0, 3, 6, 9],
+    "half-dim7": [0, 3, 6, 10],
+    "7sus4": [0, 5, 7, 10],
+    "7sus2": [0, 2, 7, 10],
+    
+    // Add-soinnut
+    "add2": [0, 2, 4, 7],
+    "add4": [0, 4, 5, 7],
+    "add6": [0, 4, 7, 9],
+    "add9": [0, 4, 7, 14],
+    "add11": [0, 4, 7, 17],
+    "6": [0, 4, 7, 9],
+    "min6": [0, 3, 7, 9],
+    "6/9": [0, 4, 7, 9, 14],
+    
+    // Noonisoinnut
+    "maj9": [0, 4, 7, 11, 14],
+    "9": [0, 4, 7, 10, 14],
+    "min9": [0, 3, 7, 10, 14],
+    "min/maj9": [0, 3, 7, 11, 14],
+    "aug9": [0, 4, 8, 10, 14],
+    "half-dim9": [0, 3, 6, 10, 14],
+    "9sus4": [0, 5, 7, 10, 14],
+    
+    // 11-soinnut
+    "maj11": [0, 4, 7, 11, 14, 17],
+    "11": [0, 4, 7, 10, 14, 17],
+    "min11": [0, 3, 7, 10, 14, 17],
+    
+    // 13-soinnut
+    "maj13": [0, 4, 7, 11, 14, 17, 21],
+    "13": [0, 4, 7, 10, 14, 17, 21],
+    "min13": [0, 3, 7, 10, 14, 17, 21],
+    
+    // Erikoissoinnut
+    "7#5": [0, 4, 8, 10],
+    "7b5": [0, 4, 6, 10],
+    "maj7#5": [0, 4, 8, 11],
+    "maj7b5": [0, 4, 6, 11],
+    "7#9": [0, 4, 7, 10, 15],
+    "7b9": [0, 4, 7, 10, 13],
+    "7#11": [0, 4, 7, 10, 18],
+    "7b13": [0, 4, 7, 10, 20],
+  };
+
+  const processedChords = [];
+  for (const [name, intervals] of Object.entries(chord_templates)) {
+    const pcs = Array.from(new Set(intervals.map(i => i % 12))).sort((a,b)=>a-b);
+    processedChords.push({ name, pcs, size: intervals.length });
+
+    const isExtended = /[79]|11|13|6/.test(name);
+    if (isExtended && pcs.includes(7)) {
+      const no5pcs = pcs.filter(x => x !== 7);
+      processedChords.push({ name: name + " (no 5th)", pcs: no5pcs, size: intervals.length - 1 });
+    }
+  }
+
+  processedChords.sort((a, b) => b.size - a.size);
+
+  function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  global.ChordDetector = {
+    detect: function(midiNotes) {
+      if (!midiNotes || midiNotes.length === 0) return "—";
+      const sortedMidi = [...midiNotes].sort((a,b) => a - b);
+      const bassMidi = sortedMidi[0];
+      const bassNoteName = NOTE_NAMES[bassMidi % 12];
+      const uniquePCs = Array.from(new Set(sortedMidi.map(m => m % 12)));
+
+      const matches = [];
+
+      for (let r = 0; r < 12; r++) {
+        const relPCs = Array.from(new Set(uniquePCs.map(pc => (pc - r + 12) % 12))).sort((a,b)=>a-b);
+        for (const chord of processedChords) {
+          if (arraysEqual(relPCs, chord.pcs)) {
+            matches.push({
+              root: r,
+              rootName: NOTE_NAMES[r],
+              chordName: chord.name,
+              size: chord.size,
+              bassName: bassNoteName,
+              isInversion: r !== (bassMidi % 12)
+            });
+          }
+        }
+      }
+
+      if (matches.length === 0) return "Tuntematon";
+      
+      matches.sort((a, b) => b.size - a.size);
+      const best = matches[0];
+      
+      let displayStr = `${best.rootName}${best.chordName}`;
+      if (best.isInversion) {
+        displayStr += `/${best.bassName}`;
+      }
+      return displayStr;
+    }
+  };
+})(window);
+</script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -525,6 +757,12 @@ for (let midi = 21; midi <= 108; midi++) {
 }
 keysContainer.style.width = (whiteCount * KEY_STEP - KEY_GAP) + 'px';
 
+document.querySelectorAll('.wkey, .bkey').forEach(el => {
+  const lbl = document.createElement('span');
+  lbl.className = 'hotkey-label';
+  el.appendChild(lbl);
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ORIGINAL PARTICLE EFFECT (Sparkles on key hit)
 // ═══════════════════════════════════════════════════════════════
@@ -562,6 +800,122 @@ function animateParticles() {
 animateParticles();
 
 // ═══════════════════════════════════════════════════════════════
+// VIIVASTOMALLIN MUUNNOS JA VISUALISOINTI (CLEF MODE)
+// ═══════════════════════════════════════════════════════════════
+let clefMode = true; // Oletuksena käytössä On-tilassa
+const clefBtn = document.getElementById('clef-btn');
+
+clefBtn.addEventListener('click', () => {
+  clefMode = !clefMode;
+  clefBtn.classList.toggle('active-clef', clefMode);
+  fallingNotes = []; // tyhjennetään nykyiset nuotit häiriöiden välttämiseksi
+  if (clefMode) {
+    setStatus('Nuottiviivastotila aktivoitu', true);
+  } else {
+    setStatus('Tähtisadepudotus aktivoitu', true);
+  }
+});
+
+// Muuntaa MIDI-koskettimen nuottiviivaston Y-koordinaatiksi
+// Keski-C (MIDI 60) on viivastojen keskellä (step = 0)
+function midiToStaffY(midi) {
+  const centerY = window.innerHeight * 0.32; // Sijoitus ruudun yläpuoliskoon
+  const lineSpacing = 11;
+  const stepHeight = lineSpacing / 2;
+
+  // Diatoninen siirtymä suhteessa C4 (MIDI 60)
+  const midiToDiatonic = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+  const octave = Math.floor(midi / 12) - 5;
+  const noteInOctave = midi % 12;
+  const step = octave * 7 + midiToDiatonic[noteInOctave];
+
+  return centerY - step * stepHeight;
+}
+
+function drawGrandStaff() {
+  const centerY = window.innerHeight * 0.32;
+  const lineSpacing = 11;
+  const stepHeight = lineSpacing / 2;
+  const startX = 60;
+  const endX = window.innerWidth - 60;
+
+  fCtx.save();
+  fCtx.strokeStyle = 'rgba(201, 168, 76, 0.22)';
+  fCtx.lineWidth = 1;
+
+  // Diskanttiavain viivat (asemat 2, 4, 6, 8, 10 diatonisesti)
+  for (let i = 2; i <= 10; i += 2) {
+    const y = centerY - i * stepHeight;
+    fCtx.beginPath(); fCtx.moveTo(startX, y); fCtx.lineTo(endX, y); fCtx.stroke();
+  }
+
+  // Bassoavain viivat (asemat -2, -4, -6, -8, -10 diatonisesti)
+  for (let i = 2; i <= 10; i += 2) {
+    const y = centerY + i * stepHeight;
+    fCtx.beginPath(); fCtx.moveTo(startX, y); fCtx.lineTo(endX, y); fCtx.stroke();
+  }
+
+  // Pystysuorat viivat sulkemaan viivastot
+  fCtx.strokeStyle = 'rgba(201, 168, 76, 0.4)';
+  fCtx.lineWidth = 1.5;
+  const tY = centerY - 10 * stepHeight;
+  const bY = centerY + 10 * stepHeight;
+  fCtx.beginPath(); fCtx.moveTo(startX, tY); fCtx.lineTo(startX, bY); fCtx.stroke();
+  fCtx.beginPath(); fCtx.moveTo(endX, tY); fCtx.lineTo(endX, bY); fCtx.stroke();
+
+  // Akoladi (sulku) vasemmassa reunassa
+  fCtx.font = '54px serif';
+  fCtx.fillStyle = 'rgba(201, 168, 76, 0.7)';
+  fCtx.textAlign = 'right';
+  fCtx.textBaseline = 'middle';
+  fCtx.fillText('{', startX - 8, centerY);
+
+  // G- ja F-avaimien symbolit piirrettynä tyylikkäästi
+  fCtx.textAlign = 'left';
+  fCtx.font = '38px serif';
+  fCtx.fillText('𝄞', startX + 10, centerY - 4 * stepHeight + 11); // Diskantti G4-viivalla
+  fCtx.fillText('𝄢', startX + 10, centerY + 4 * stepHeight + 6);  // Basso F3-viivalla
+
+  // 1/3 kohdassa oleva pystyviiva (Trigger Line)
+  const triggerX = window.innerWidth / 3;
+  fCtx.strokeStyle = 'rgba(201, 168, 76, 0.55)';
+  fCtx.lineWidth = 1.5;
+  fCtx.setLineDash([4, 4]);
+  fCtx.beginPath();
+  fCtx.moveTo(triggerX, tY - 15);
+  fCtx.lineTo(triggerX, bY + 15);
+  fCtx.stroke();
+  fCtx.setLineDash([]); // nollaus
+
+  // Korostusalue trigger-viivan ympärillä
+  fCtx.fillStyle = 'rgba(201, 168, 76, 0.04)';
+  fCtx.fillRect(triggerX - 10, tY - 10, 20, (bY - tY) + 20);
+
+  fCtx.restore();
+}
+
+// Spawnaa käyttäjän oman soittaman nuotin viivastolle (syaanin värinen)
+function spawnUserNote(midi) {
+  if (!clefMode) return;
+  const triggerX = window.innerWidth / 3;
+  const slideDuration = 2000;
+  const speed = (window.innerWidth - triggerX) / (slideDuration / (1000/60));
+
+  fallingNotes.push({
+    x: triggerX,
+    y: midiToStaffY(midi),
+    targetKey: midi,
+    radius: 6,
+    alpha: 1,
+    hit: true, // jo lauennut, valuu vain ohi
+    speed: speed,
+    isUserNote: true,
+    trail: [],
+    tailLength: 35
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // GOLDEN FALLING NOTES (top to key) - with hit callback
 // ═══════════════════════════════════════════════════════════════
 const fallCanvas = document.getElementById('falling-canvas');
@@ -578,141 +932,281 @@ function updateKeyRects() {
   });
 }
 
-// Spawn a golden note with a callback when it hits the key
-// noteDurationMs: optional duration of the note (for tail length)
 function spawnGoldenNoteWithCallback(midi, onHitCallback, noteDurationMs) {
   const rect = keyRects.get(midi);
-  if (!rect) return null;
   const startY = 5;
-  const targetY = rect.top + rect.height * 0.55;
-  const dist = targetY - startY;
-  // Fixed travel time = STAR_FALL_DURATION ms → derive speed in px/frame
-  const speed = dist / (STAR_FALL_DURATION / (1000/60));
-  const noteObj = {
-    x: rect.left + rect.width/2, y: startY, targetKey: midi,
-    radius: 8, alpha: 1, hit: false, speed: Math.max(1.2, speed),
-    rotation: Math.random() * Math.PI * 2, rotSpeed: 0.025 + Math.random()*0.02,
-    onHit: onHitCallback,
-    tailLength: noteDurationMs ? Math.max(30, Math.min(300, noteDurationMs * 0.18)) : 60,
-    trail: []   // stores recent {x,y} positions for tail
-  };
+  const targetY = rect ? (rect.top + rect.height * 0.55) : window.innerHeight * 0.65;
+
+  let noteObj;
+  if (clefMode) {
+    const triggerX = window.innerWidth / 3;
+    const startX = window.innerWidth;
+    const slideDuration = 2000; // ms nuotin matka oikealta 1/3-linjalle
+    const speed = (startX - triggerX) / (slideDuration / (1000/60));
+
+    noteObj = {
+      x: startX,
+      y: midiToStaffY(midi),
+      targetKey: midi,
+      radius: 6,
+      alpha: 1,
+      hit: false,
+      speed: speed,
+      onHit: onHitCallback,
+      isUserNote: false,
+      trail: [],
+      tailLength: noteDurationMs ? Math.max(20, Math.min(150, noteDurationMs * 0.08)) : 40
+    };
+  } else {
+    if (!rect) return null;
+    const dist = targetY - startY;
+    const speed = dist / (STAR_FALL_DURATION / (1000/60));
+    noteObj = {
+      x: rect.left + rect.width/2,
+      y: startY,
+      targetKey: midi,
+      radius: 8,
+      alpha: 1,
+      hit: false,
+      speed: Math.max(1.2, speed),
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: 0.025 + Math.random()*0.02,
+      onHit: onHitCallback,
+      isUserNote: false,
+      tailLength: noteDurationMs ? Math.max(30, Math.min(300, noteDurationMs * 0.18)) : 60,
+      trail: []
+    };
+  }
   fallingNotes.push(noteObj);
   return noteObj;
 }
 
 function updateFallingNotes() {
-  for (let i=0; i<fallingNotes.length; i++) {
+  const triggerX = window.innerWidth / 3;
+  for (let i = 0; i < fallingNotes.length; i++) {
     const n = fallingNotes[i];
-    if (n.hit) {
-      n.alpha -= 0.045; n.radius += 0.4;
-      // Shrink tail from origin end
-      if (n.trail.length > 0) n.trail.shift();
-      if (n.alpha <= 0) { fallingNotes.splice(i,1); i--; }
-      continue;
-    }
-    n.y += n.speed; n.rotation += n.rotSpeed;
-    // Record trail point every frame
-    n.trail.push({x: n.x, y: n.y});
-    const maxTrail = Math.ceil(n.tailLength);
-    if (n.trail.length > maxTrail) n.trail.shift();
 
-    const curRect = keyRects.get(n.targetKey);
-    if (curRect && n.y >= curRect.top + curRect.height * 0.55) {
-      n.hit = true;
-      n.impactX = curRect.left + curRect.width/2;
-      n.impactY = curRect.top + 5;
-      n.sparkle = 1.0;  // sparkle intensity
-      if (n.onHit) n.onHit(n.targetKey);
-      spawnParticleAt(curRect.left + curRect.width/2, curRect.top + 5);
+    // 1. Käyttäjän itse soittamat nuotit (Syaani väri - liukuu suoraan vasemmalle)
+    if (n.isUserNote) {
+      n.x -= n.speed;
+      n.trail.push({x: n.x, y: n.y});
+      if (n.trail.length > n.tailLength) n.trail.shift();
+      if (n.x < 50) {
+        n.alpha -= 0.05;
+        if (n.alpha <= 0 || n.x < -30) { fallingNotes.splice(i,1); i--; }
+      }
       continue;
     }
-    if (n.y > window.innerHeight + 80) { fallingNotes.splice(i,1); i--; }
+
+    // 2. Ohjelman soittamat nuotit
+    if (n.hit) {
+      if (clefMode) {
+        // Jatkaa liukumista vasempaan reunaan vaikka on jo soinnutettu viivalla
+        n.x -= n.speed;
+        n.trail.push({x: n.x, y: n.y});
+        if (n.trail.length > n.tailLength) n.trail.shift();
+        n.alpha -= 0.02; // Hidas tyylikäs häipyminen
+        if (n.alpha <= 0 || n.x < -30) { fallingNotes.splice(i,1); i--; }
+      } else {
+        // Alkuperäinen pystysuora tähtihäipyminen
+        n.alpha -= 0.045; n.radius += 0.4;
+        if (n.trail.length > 0) n.trail.shift();
+        if (n.alpha <= 0) { fallingNotes.splice(i,1); i--; }
+      }
+      continue;
+    }
+
+    // Liikuta aktiivisia nuotteja kohti osumaa
+    if (clefMode) {
+      n.x -= n.speed;
+      n.trail.push({x: n.x, y: n.y});
+      if (n.trail.length > n.tailLength) n.trail.shift();
+
+      if (n.x <= triggerX) {
+        n.hit = true;
+        n.impactX = triggerX;
+        n.impactY = n.y;
+        if (n.onHit) n.onHit(n.targetKey);
+
+        const curRect = keyRects.get(n.targetKey);
+        if (curRect) spawnParticleAt(curRect.left + curRect.width/2, curRect.top + 5);
+        else spawnParticleAt(triggerX, n.y);
+      }
+    } else {
+      // Alkuperäinen pystytippumis-logiikka
+      n.y += n.speed; n.rotation += n.rotSpeed;
+      n.trail.push({x: n.x, y: n.y});
+      const maxTrail = Math.ceil(n.tailLength);
+      if (n.trail.length > maxTrail) n.trail.shift();
+
+      const curRect = keyRects.get(n.targetKey);
+      if (curRect && n.y >= curRect.top + curRect.height * 0.55) {
+        n.hit = true;
+        n.impactX = curRect.left + curRect.width/2;
+        n.impactY = curRect.top + 5;
+        if (n.onHit) n.onHit(n.targetKey);
+        spawnParticleAt(curRect.left + curRect.width/2, curRect.top + 5);
+      }
+    }
+
+    if (n.y > window.innerHeight + 80 || n.x < -50) { fallingNotes.splice(i,1); i--; }
   }
 }
 
 function drawFallingNotes() {
   fCtx.clearRect(0, 0, fallCanvas.width, fallCanvas.height);
+  
+  if (clefMode) {
+    drawGrandStaff();
+  }
+
   for (const n of fallingNotes) {
-    if (n.hit) {
-      // Draw shrinking tail during fade-out
-      if (n.trail && n.trail.length > 1) {
-        for (let t = 0; t < n.trail.length - 1; t++) {
-          const p0 = n.trail[t], p1 = n.trail[t+1];
-          const frac = t / n.trail.length;
-          const tailAlpha = frac * n.alpha * 0.7;
-          fCtx.beginPath();
-          fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
-          fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
-          fCtx.lineWidth = 1.5 + frac * 3;
-          fCtx.shadowBlur = 8; fCtx.shadowColor = '#c9a84c';
-          fCtx.stroke();
-        }
-      }
-      // Impact burst + sparkle ring at key contact
-      const ix = n.impactX || n.x, iy = n.impactY || n.y;
+    const isSyaani = n.isUserNote;
+    const strokeColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.5})` : `rgba(255, 210, 80, ${n.alpha * 0.5})`;
+    const headColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha})` : `rgba(245, 215, 66, ${n.alpha})`;
+    const glowColor = isSyaani ? '#00f5d4' : '#c9a84c';
+
+    if (clefMode) {
       fCtx.save();
-      fCtx.shadowBlur = 28 * n.alpha; fCtx.shadowColor = '#ffe066';
-      fCtx.beginPath(); fCtx.arc(ix, iy, n.radius * (1 - n.alpha*0.3), 0, Math.PI*2);
-      fCtx.fillStyle = `rgba(255, 200, 80, ${n.alpha * 0.85})`; fCtx.fill();
-      // Sparkle ring
-      if (n.alpha > 0.3) {
-        const ringR = n.radius * (2.5 - n.alpha);
-        fCtx.beginPath(); fCtx.arc(ix, iy, ringR, 0, Math.PI*2);
-        fCtx.strokeStyle = `rgba(255,240,140,${n.alpha * 0.6})`; 
-        fCtx.lineWidth = 1.5; fCtx.stroke();
-        // 8 spark lines radiating outward
-        for (let s = 0; s < 8; s++) {
-          const ang = (Math.PI * 2 / 8) * s + (1-n.alpha) * 0.5;
-          const r1 = n.radius * 1.2, r2 = ringR * 1.3 * (1 - n.alpha * 0.4);
-          fCtx.beginPath();
-          fCtx.moveTo(ix + Math.cos(ang)*r1, iy + Math.sin(ang)*r1);
-          fCtx.lineTo(ix + Math.cos(ang)*r2, iy + Math.sin(ang)*r2);
-          fCtx.strokeStyle = `rgba(255,230,100,${n.alpha * 0.55})`;
-          fCtx.lineWidth = 1; fCtx.stroke();
-        }
-      }
-      fCtx.restore();
-    } else {
-      // Draw glowing tail behind the star (trail points, oldest=faintest)
-      fCtx.save();
+      fCtx.shadowBlur = n.hit ? 15 : 5;
+      fCtx.shadowColor = glowColor;
+
+      // Piirretään tyylikäs liukuhäntä
       if (n.trail && n.trail.length > 1) {
-        for (let t = 0; t < n.trail.length - 1; t++) {
-          const p0 = n.trail[t], p1 = n.trail[t+1];
-          const frac = t / n.trail.length;
-          const tailAlpha = frac * 0.75;
-          const w = 1.2 + frac * 4;
-          fCtx.beginPath();
-          fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
-          fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
-          fCtx.lineWidth = w;
-          fCtx.shadowBlur = 8 * frac; fCtx.shadowColor = '#c9a84c88';
-          fCtx.stroke();
-        }
-        // Bright core of tail (innermost segment)
-        const tp = n.trail[n.trail.length-1];
         fCtx.beginPath();
-        fCtx.moveTo(tp.x, tp.y); fCtx.lineTo(n.x, n.y);
-        fCtx.strokeStyle = 'rgba(255,245,180,0.9)';
-        fCtx.lineWidth = 2.5;
-        fCtx.shadowBlur = 14; fCtx.shadowColor = '#ffe080';
+        fCtx.moveTo(n.trail[0].x, n.trail[0].y);
+        for (let t = 1; t < n.trail.length; t++) {
+          fCtx.lineTo(n.trail[t].x, n.trail[t].y);
+        }
+        fCtx.strokeStyle = strokeColor;
+        fCtx.lineWidth = isSyaani ? 3.5 : 2.5;
         fCtx.stroke();
       }
-      fCtx.restore();
-      // Draw the star itself
-      fCtx.save(); fCtx.shadowBlur = 16; fCtx.shadowColor = '#c9a84c';
-      fCtx.translate(n.x, n.y); fCtx.rotate(n.rotation);
-      fCtx.beginPath();
-      for (let i=0;i<10;i++) {
-        let rad = i%2===0 ? n.radius : n.radius*0.45;
-        let ang = (Math.PI*2/10)*i;
-        let xp = Math.cos(ang)*rad, yp = Math.sin(ang)*rad;
-        if(i===0) fCtx.moveTo(xp,yp); else fCtx.lineTo(xp,yp);
+
+      // Piirretään apuviivat nuoteille jotka tarvitsevat niitä (kuten keski-C)
+      const lineSpacing = 11;
+      const stepHeight = lineSpacing / 2;
+      const midiToDiatonic = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+      const octave = Math.floor(n.targetKey / 12) - 5;
+      const noteInOctave = n.targetKey % 12;
+      const step = octave * 7 + midiToDiatonic[noteInOctave];
+
+      // Keski-C (step = 0) ja ylä/alapuoliset lisäviivat
+      const isLedger = (step === 0 || (step >= 12 && step % 2 === 0) || (step <= -12 && step % 2 === 0));
+      if (isLedger) {
+        fCtx.beginPath();
+        fCtx.moveTo(n.x - 10, n.y);
+        fCtx.lineTo(n.x + 10, n.y);
+        fCtx.strokeStyle = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.8})` : `rgba(201, 168, 76, ${n.alpha * 0.8})`;
+        fCtx.lineWidth = 1.5;
+        fCtx.stroke();
       }
-      fCtx.closePath();
-      fCtx.fillStyle = '#f5d742'; fCtx.fill();
-      fCtx.beginPath(); fCtx.arc(0,0,n.radius*0.45,0,Math.PI*2);
-      fCtx.fillStyle = '#ffecb0'; fCtx.fill();
+
+      // Etumerkki (korotusmerkki ♯) mustille koskettimille
+      const noteName = NOTE_NAMES[n.targetKey % 12];
+      if (BLACK_SET.has(noteName)) {
+        fCtx.font = '12px serif';
+        fCtx.fillStyle = headColor;
+        fCtx.fillText('♯', n.x - 13, n.y + 4.5);
+      }
+
+      // Ellipsin muotoinen tyylikäs nuotin pää (kallistettu)
+      fCtx.translate(n.x, n.y);
+      fCtx.rotate(-Math.PI / 7);
+      fCtx.beginPath();
+      fCtx.ellipse(0, 0, 5.8, 4.1, 0, 0, Math.PI * 2);
+      fCtx.fillStyle = headColor;
+      fCtx.fill();
+
       fCtx.restore();
+
+      // Osuman laajeneva ympyrä trigger-viivalla
+      if (n.hit && n.alpha > 0.4 && !isSyaani) {
+        fCtx.save();
+        fCtx.shadowBlur = 12; fCtx.shadowColor = '#f5d742';
+        fCtx.beginPath();
+        fCtx.arc(n.impactX, n.impactY, 13 * (1.6 - n.alpha), 0, Math.PI * 2);
+        fCtx.strokeStyle = `rgba(255, 230, 110, ${(n.alpha - 0.4) * 1.6})`;
+        fCtx.lineWidth = 1.2;
+        fCtx.stroke();
+        fCtx.restore();
+      }
+    } else {
+      // ALKUPERÄINEN pystytippumis-piirto
+      if (n.hit) {
+        if (n.trail && n.trail.length > 1) {
+          for (let t = 0; t < n.trail.length - 1; t++) {
+            const p0 = n.trail[t], p1 = n.trail[t+1];
+            const frac = t / n.trail.length;
+            const tailAlpha = frac * n.alpha * 0.7;
+            fCtx.beginPath();
+            fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+            fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+            fCtx.lineWidth = 1.5 + frac * 3;
+            fCtx.shadowBlur = 8; fCtx.shadowColor = '#c9a84c';
+            fCtx.stroke();
+          }
+        }
+        const ix = n.impactX || n.x, iy = n.impactY || n.y;
+        fCtx.save();
+        fCtx.shadowBlur = 28 * n.alpha; fCtx.shadowColor = '#ffe066';
+        fCtx.beginPath(); fCtx.arc(ix, iy, n.radius * (1 - n.alpha*0.3), 0, Math.PI*2);
+        fCtx.fillStyle = `rgba(255, 200, 80, ${n.alpha * 0.85})`; fCtx.fill();
+        if (n.alpha > 0.3) {
+          const ringR = n.radius * (2.5 - n.alpha);
+          fCtx.beginPath(); fCtx.arc(ix, iy, ringR, 0, Math.PI*2);
+          fCtx.strokeStyle = `rgba(255,240,140,${n.alpha * 0.6})`; 
+          fCtx.lineWidth = 1.5; fCtx.stroke();
+          for (let s = 0; s < 8; s++) {
+            const ang = (Math.PI * 2 / 8) * s + (1-n.alpha) * 0.5;
+            const r1 = n.radius * 1.2, r2 = ringR * 1.3 * (1 - n.alpha * 0.4);
+            fCtx.beginPath();
+            fCtx.moveTo(ix + Math.cos(ang)*r1, iy + Math.sin(ang)*r1);
+            fCtx.lineTo(ix + Math.cos(ang)*r2, iy + Math.sin(ang)*r2);
+            fCtx.strokeStyle = `rgba(255,230,100,${n.alpha * 0.55})`;
+            fCtx.lineWidth = 1; fCtx.stroke();
+          }
+        }
+        fCtx.restore();
+      } else {
+        fCtx.save();
+        if (n.trail && n.trail.length > 1) {
+          for (let t = 0; t < n.trail.length - 1; t++) {
+            const p0 = n.trail[t], p1 = n.trail[t+1];
+            const frac = t / n.trail.length;
+            const tailAlpha = frac * 0.75;
+            const w = 1.2 + frac * 4;
+            fCtx.beginPath();
+            fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+            fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+            fCtx.lineWidth = w;
+            fCtx.shadowBlur = 8 * frac; fCtx.shadowColor = '#c9a84c88';
+            fCtx.stroke();
+          }
+          const tp = n.trail[n.trail.length-1];
+          fCtx.beginPath();
+          fCtx.moveTo(tp.x, tp.y); fCtx.lineTo(n.x, n.y);
+          fCtx.strokeStyle = 'rgba(255,245,180,0.9)';
+          fCtx.lineWidth = 2.5;
+          fCtx.shadowBlur = 14; fCtx.shadowColor = '#ffe080';
+          fCtx.stroke();
+        }
+        fCtx.restore();
+        fCtx.save(); fCtx.shadowBlur = 16; fCtx.shadowColor = '#c9a84c';
+        fCtx.translate(n.x, n.y); fCtx.rotate(n.rotation);
+        fCtx.beginPath();
+        for (let i=0;i<10;i++) {
+          let rad = i%2===0 ? n.radius : n.radius*0.45;
+          let ang = (Math.PI*2/10)*i;
+          let xp = Math.cos(ang)*rad, yp = Math.sin(ang)*rad;
+          if(i===0) fCtx.moveTo(xp,yp); else fCtx.lineTo(xp,yp);
+        }
+        fCtx.closePath();
+        fCtx.fillStyle = '#f5d742'; fCtx.fill();
+        fCtx.beginPath(); fCtx.arc(0,0,n.radius*0.45,0,Math.PI*2);
+        fCtx.fillStyle = '#ffecb0'; fCtx.fill();
+        fCtx.restore();
+      }
     }
   }
 }
@@ -723,6 +1217,31 @@ resizeFallCanvas();
 
 function animateFallingLoop() { updateKeyRects(); updateFallingNotes(); drawFallingNotes(); requestAnimationFrame(animateFallingLoop); }
 animateFallingLoop();
+
+// ═══════════════════════════════════════════════════════════════
+// SOINNUN REAALIAIKAINEN SEURANTA JA NÄYTTÖ
+// ═══════════════════════════════════════════════════════════════
+const activeChordNotes = new Set();
+
+function trackActiveNote(midi) {
+  activeChordNotes.add(midi);
+  updateChordDisplay();
+}
+
+function untrackActiveNote(midi) {
+  activeChordNotes.delete(midi);
+  updateChordDisplay();
+}
+
+function updateChordDisplay() {
+  const chordNameEl = document.getElementById('chord-name');
+  if (activeChordNotes.size === 0) {
+    chordNameEl.textContent = '—';
+    return;
+  }
+  const arr = Array.from(activeChordNotes);
+  chordNameEl.textContent = window.ChordDetector.detect(arr);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // KEY VISUAL + AUDIO + MIDI OUT (for manual play)
@@ -736,16 +1255,23 @@ function releaseKeyVisual(midi) {
   if (el) el.classList.remove('active');
 }
 
-// Manual play: immediate sound + golden note
 function playManualNote(midi, vel=100) {
   pressKeyVisual(midi);
   playTone(midi, vel);
   sendMidiNote(midi, vel);
-  spawnGoldenNoteWithCallback(midi, (m) => {
-    spawnParticleAtFromMidi(m);
+  trackActiveNote(midi);
+  if (clefMode) {
+    spawnUserNote(midi);
+  } else {
+    spawnGoldenNoteWithCallback(midi, (m) => {
+      spawnParticleAtFromMidi(m);
+    }, 600);
+  }
+  setTimeout(() => { 
+    releaseKeyVisual(midi); 
+    sendMidiNoteOff(midi); 
+    untrackActiveNote(midi);
   }, 600);
-  // schedule release after short duration
-  setTimeout(() => { releaseKeyVisual(midi); sendMidiNoteOff(midi); }, 600);
 }
 
 function spawnParticleAtFromMidi(midi) {
@@ -802,7 +1328,154 @@ function playTone(midi, vel=100, dur=0.65) {
 })();
 
 // ═══════════════════════════════════════════════════════════════
-// MIDI OUT
+// TIETOKONEEN NÄPPÄIMISTÖLLÄ SOITTAMINEN & HOTKEYS-LOGIIKKA
+// ═══════════════════════════════════════════════════════════════
+const KEYBOARD_WHITE_KEYS = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];
+const KEYBOARD_BLACK_KEYS = ['w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'];
+
+let currentWhiteStartIdx = WHITE_KEYS.findIndex(w => w.midi === 60);
+if (currentWhiteStartIdx < 0) currentWhiteStartIdx = 23;
+
+const pressedKeys = new Set();
+const activeKeyboardNotes = new Map();
+
+function updateKeyboardHotkeys() {
+  document.querySelectorAll('.hotkey-label').forEach(el => el.textContent = '');
+
+  const isKeyboardMode = (midiInSelect.value === 'keyboard');
+  const keysContainerEl = document.getElementById('keys');
+  
+  if (isKeyboardMode) {
+    keysContainerEl.classList.add('show-hotkeys');
+  } else {
+    keysContainerEl.classList.remove('show-hotkeys');
+    return;
+  }
+
+  for (let i = 0; i < 9; i++) {
+    const whiteIdx = currentWhiteStartIdx + i;
+    if (whiteIdx >= WHITE_KEYS.length) break;
+    
+    const wkeyObj = WHITE_KEYS[whiteIdx];
+    const wKeyEl = document.querySelector(`.wkey[data-midi="${wkeyObj.midi}"]`);
+    if (wKeyEl) {
+      const label = wKeyEl.querySelector('.hotkey-label');
+      if (label) label.textContent = KEYBOARD_WHITE_KEYS[i].toUpperCase();
+    }
+
+    const nextMidi = wkeyObj.midi + 1;
+    if (BLACK_SET.has(NOTE_NAMES[nextMidi % 12])) {
+      const bKeyEl = document.querySelector(`.bkey[data-midi="${nextMidi}"]`);
+      if (bKeyEl) {
+        const label = bKeyEl.querySelector('.hotkey-label');
+        if (label) label.textContent = KEYBOARD_BLACK_KEYS[i].toUpperCase();
+      }
+    }
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+  if (midiInSelect.value !== 'keyboard') return;
+
+  const key = e.key.toLowerCase();
+
+  let indexChanged = false;
+  if (key === '2') {
+    currentWhiteStartIdx += 7;
+    indexChanged = true;
+  } else if (key === '1') {
+    currentWhiteStartIdx -= 7;
+    indexChanged = true;
+  } else if (key === '4') {
+    currentWhiteStartIdx += 1;
+    indexChanged = true;
+  } else if (key === '3') {
+    currentWhiteStartIdx -= 1;
+    indexChanged = true;
+  }
+
+  if (indexChanged) {
+    currentWhiteStartIdx = Math.max(0, Math.min(WHITE_KEYS.length - 9, currentWhiteStartIdx));
+    updateKeyboardHotkeys();
+    
+    const startW = WHITE_KEYS[currentWhiteStartIdx];
+    setStatus(`Aloitusnuotti siirretty: ${startW.note}${Math.floor((startW.midi-12)/12)}`, true);
+    return;
+  }
+
+  if (pressedKeys.has(key)) return;
+
+  let targetMidi = null;
+
+  const wIdx = KEYBOARD_WHITE_KEYS.indexOf(key);
+  if (wIdx >= 0) {
+    const whiteIdx = currentWhiteStartIdx + wIdx;
+    if (whiteIdx < WHITE_KEYS.length) {
+      targetMidi = WHITE_KEYS[whiteIdx].midi;
+    }
+  } else {
+    const bIdx = KEYBOARD_BLACK_KEYS.indexOf(key);
+    if (bIdx >= 0) {
+      const whiteIdx = currentWhiteStartIdx + bIdx;
+      if (whiteIdx < WHITE_KEYS.length) {
+        const baseWk = WHITE_KEYS[whiteIdx];
+        const candidateMidi = baseWk.midi + 1;
+        if (BLACK_SET.has(NOTE_NAMES[candidateMidi % 12])) {
+          targetMidi = candidateMidi;
+        }
+      }
+    }
+  }
+
+  if (targetMidi !== null) {
+    pressedKeys.add(key);
+    activeKeyboardNotes.set(key, targetMidi);
+
+    playTone(targetMidi, 100);
+    pressKeyVisual(targetMidi);
+    sendMidiNote(targetMidi, 100);
+    trackActiveNote(targetMidi);
+
+    if (clefMode) {
+      spawnUserNote(targetMidi);
+    } else {
+      spawnGoldenNoteWithCallback(targetMidi, (m) => {
+        spawnParticleAtFromMidi(m);
+      }, 600);
+    }
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  const key = e.key.toLowerCase();
+  if (pressedKeys.has(key)) {
+    pressedKeys.delete(key);
+    const midi = activeKeyboardNotes.get(key);
+    if (midi !== undefined) {
+      releaseKeyVisual(midi);
+      sendMidiNoteOff(midi);
+      untrackActiveNote(midi);
+      activeKeyboardNotes.delete(key);
+    }
+  }
+});
+
+window.addEventListener('blur', () => {
+  pressedKeys.forEach(key => {
+    const midi = activeKeyboardNotes.get(key);
+    if (midi !== undefined) {
+      releaseKeyVisual(midi);
+      sendMidiNoteOff(midi);
+      untrackActiveNote(midi);
+    }
+  });
+  pressedKeys.clear();
+  activeKeyboardNotes.clear();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// MIDI IN / OUT LIITÄNNÄT
 // ═══════════════════════════════════════════════════════════════
 let midiAccess=null, midiOutPort=null, midiInPort=null;
 let midiOutSelect=document.getElementById('midi-out-select');
@@ -818,6 +1491,7 @@ async function initMidi(){
     midiAccess.onstatechange=()=>{ populateMidiOutputs(); populateMidiInputs(); };
   }catch(e){}
 }
+
 function populateMidiOutputs(){
   const prev=midiOutSelect.value;
   while(midiOutSelect.options.length>1)midiOutSelect.remove(1);
@@ -828,9 +1502,10 @@ function populateMidiOutputs(){
   if(prev)midiOutSelect.value=prev;
   updateMidiOutPort();
 }
+
 function populateMidiInputs(){
   const prev=midiInSelect.value;
-  while(midiInSelect.options.length>1)midiInSelect.remove(1);
+  while(midiInSelect.options.length>2)midiInSelect.remove(2);
   midiAccess.inputs.forEach((port,id)=>{
     const opt=document.createElement('option'); opt.value=id; opt.textContent=port.name;
     midiInSelect.appendChild(opt);
@@ -838,12 +1513,22 @@ function populateMidiInputs(){
   if(prev)midiInSelect.value=prev;
   updateMidiInPort();
 }
+
 midiOutSelect.addEventListener('change',updateMidiOutPort);
-midiInSelect.addEventListener('change',updateMidiInPort);
+midiInSelect.addEventListener('change', () => {
+  updateMidiInPort();
+  updateKeyboardHotkeys();
+});
+
 function updateMidiOutPort(){ midiOutPort=midiOutSelect.value&&midiAccess?midiAccess.outputs.get(midiOutSelect.value):null; }
 function updateMidiInPort(){
   if(midiInPort){ midiInPort.onmidimessage=null; }
-  midiInPort=midiInSelect.value&&midiAccess?midiAccess.inputs.get(midiInSelect.value):null;
+  const val = midiInSelect.value;
+  if (val === 'keyboard' || !val) {
+    midiInPort = null;
+  } else if (midiAccess) {
+    midiInPort = midiAccess.inputs.get(val);
+  }
   if(midiInPort){ midiInPort.onmidimessage=onMidiInMessage; }
 }
 
@@ -861,19 +1546,29 @@ function onMidiInMessage(e){
     flashMidiIn();
     pressKeyVisual(note);
     playTone(note,velocity);
-    spawnGoldenNoteWithCallback(note,(m)=>spawnParticleAtFromMidi(m),500);
-    setTimeout(()=>releaseKeyVisual(note),500);
+    trackActiveNote(note);
+    if (clefMode) {
+      spawnUserNote(note);
+    } else {
+      spawnGoldenNoteWithCallback(note,(m)=>spawnParticleAtFromMidi(m),500);
+    }
+    setTimeout(() => { 
+      releaseKeyVisual(note); 
+      untrackActiveNote(note);
+    }, 500);
   } else if(type===0x80||(type===0x90&&velocity===0)){
     releaseKeyVisual(note);
+    untrackActiveNote(note);
   }
 }
 
 function sendMidiNote(midi,vel=100){ if(midiOutPort)midiOutPort.send([0x90,midi,vel]); }
 function sendMidiNoteOff(midi){ if(midiOutPort)midiOutPort.send([0x80,midi,0]); }
 initMidi();
+updateKeyboardHotkeys();
 
 // ═══════════════════════════════════════════════════════════════
-// MIDI PARSER & PLAYBACK (SOUND TRIGGERED ON STAR IMPACT)
+// MIDI PARSER & PLAYBACK (SOUND TRIGGERED ON STAR IMPACT / LINE TRIGGER)
 // ═══════════════════════════════════════════════════════════════
 function parseMidi(buffer){ const dv=new DataView(buffer); let pos=0; const ru32=()=>{const v=dv.getUint32(pos);pos+=4;return v;}, ru16=()=>{const v=dv.getUint16(pos);pos+=2;return v;}, ru8=()=>dv.getUint8(pos++), rVLQ=()=>{let v=0,b;do{b=ru8();v=(v<<7)|(b&0x7F);}while(b&0x80);return v;}; if(ru32()!==0x4D546864)throw new Error('Ei MIDI'); const hLen=ru32(),format=ru16(),numTracks=ru16(),timeDivision=ru16(); pos=8+hLen; const tracks=[]; for(let t=0;t<numTracks;t++){ if(ru32()!==0x4D54726B)continue; const tEnd=pos+ru32(); const evs=[]; let tick=0,last=0; while(pos<tEnd){ tick+=rVLQ(); let sb=ru8(); if(sb&0x80){last=sb;}else{pos--;sb=last;} const type=sb>>4; if(type===0x9){const n=ru8(),v=ru8();evs.push({tick,type:v>0?'noteOn':'noteOff',note:n,velocity:v});} else if(type===0x8){const n=ru8(),v=ru8();evs.push({tick,type:'noteOff',note:n,velocity:v});} else if(type===0xA||type===0xB||type===0xE){ru8();ru8();} else if(type===0xC||type===0xD){ru8();} else if(sb===0xFF){const mt=ru8(),ml=rVLQ(); if(mt===0x51){const a=ru8(),b=ru8(),c=ru8();evs.push({tick,type:'tempo',bpm:Math.round(60000000/(a*65536+b*256+c))});} else pos+=ml;} else if(sb===0xF0||sb===0xF7){pos+=rVLQ();}} pos=tEnd; tracks.push(evs);} return {timeDivision,tracks};}
 function flattenTracks(midi){ const tpb=midi.timeDivision; const all=[]; midi.tracks.forEach(tr=>tr.forEach(e=>all.push({...e}))); all.sort((a,b)=>a.tick-b.tick||(a.type==='noteOff'?-1:0)); const tempos=all.filter(e=>e.type==='tempo'); function ticksToMs(tick){ let ms=0,t0=0,bpm0=120; for(const tm of tempos){ if(tm.tick>=tick)break; ms+=(tm.tick-t0)/tpb*(60000/bpm0); t0=tm.tick; bpm0=tm.bpm;} ms+=(tick-t0)/tpb*(60000/bpm0); return ms;} return all.filter(e=>e.type==='noteOn'||e.type==='noteOff').map(e=>({...e,ms:ticksToMs(e.tick)}));}
@@ -882,18 +1577,21 @@ const playBtn=document.getElementById('play-btn'), stopBtn=document.getElementBy
 document.getElementById('file-input').addEventListener('change', function(e){ const file=e.target.files[0]; if(!file)return; const reader=new FileReader(); reader.onload=function(ev){ try{ const midi=parseMidi(ev.target.result); midiEvents=flattenTracks(midi); if(!midiEvents.length){setStatus('Ei nuotteja',false);return;} totalDurationMs=Math.max(...midiEvents.map(e=>e.ms)); setStatus(file.name+' — '+midiEvents.length+' tapahtumaa',true); playBtn.classList.add('playing'); }catch(err){setStatus('Virhe: '+err.message,false);} }; reader.readAsArrayBuffer(file); });
 function setStatus(msg,active){statusEl.textContent=msg;statusEl.className=active?'active':'';}
 
-// NEW: Playback with star drop delay
-const STAR_FALL_DURATION = 500; // milliseconds for star to fall from top to key
+const STAR_FALL_DURATION = 500; // Alkuperäinen pudotusaika pystytilassa
 
 function startPlayback() {
   getAudioCtx();
   isPlaying = true;
   playStartTime = performance.now();
-  setStatus('▶ Toistetaan... (stars falling)', true);
+  
+  if (clefMode) {
+    setStatus('▶ Toistetaan... (viivastotila)', true);
+  } else {
+    setStatus('▶ Toistetaan... (stars falling)', true);
+  }
 
-  // Build note durations: match each noteOn with its noteOff
-  const durations = new Map(); // index → durationMs
-  const openNotes = new Map(); // note → {idx, ms}
+  const durations = new Map();
+  const openNotes = new Map();
   midiEvents.forEach((ev, idx) => {
     if (ev.type === 'noteOn' && ev.velocity > 0) {
       openNotes.set(ev.note, {idx, ms: ev.ms});
@@ -903,10 +1601,12 @@ function startPlayback() {
     }
   });
 
+  const slideDuration = clefMode ? 2000 : STAR_FALL_DURATION;
+
   midiEvents.forEach((ev, idx) => {
     if (ev.type !== 'noteOn' || ev.velocity === 0) return;
     const hitTime = ev.ms;
-    const spawnTime = Math.max(0, hitTime - STAR_FALL_DURATION);
+    const spawnTime = Math.max(0, hitTime - slideDuration);
     const noteDur = durations.get(idx) || 400;
 
     const spawnTimer = setTimeout(() => {
@@ -916,24 +1616,25 @@ function startPlayback() {
         pressKeyVisual(midi);
         playTone(midi, ev.velocity, Math.max(0.3, noteDur / 1000));
         sendMidiNote(midi, ev.velocity);
+        trackActiveNote(midi);
         setTimeout(() => {
           releaseKeyVisual(midi);
           sendMidiNoteOff(midi);
+          untrackActiveNote(midi);
         }, noteDur || 700);
       }, noteDur);
     }, spawnTime);
     playTimers.push(spawnTimer);
   });
 
-  // Schedule end of playback
   playTimers.push(setTimeout(() => {
     stopPlayback();
     setStatus('✓ Toisto päättyi', true);
-  }, totalDurationMs + STAR_FALL_DURATION + 500));
+  }, totalDurationMs + slideDuration + 500));
   
   progressInterval = setInterval(() => {
     const elapsed = performance.now() - playStartTime;
-    progressBar.style.width = Math.min(100, (elapsed / (totalDurationMs + STAR_FALL_DURATION)) * 100) + '%';
+    progressBar.style.width = Math.min(100, (elapsed / (totalDurationMs + slideDuration)) * 100) + '%';
   }, 50);
 }
 
@@ -944,6 +1645,8 @@ function stopPlayback() {
   clearInterval(progressInterval);
   progressBar.style.width = '0%';
   document.querySelectorAll('.wkey.active, .bkey.active').forEach(el => el.classList.remove('active'));
+  activeChordNotes.clear();
+  updateChordDisplay();
   setStatus('■ Pysäytetty', false);
 }
 
