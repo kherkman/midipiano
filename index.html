@@ -287,6 +287,17 @@ header p {
   text-shadow: 0 0 8px var(--accent2);
 }
 
+/* Opi-painikkeen aktiivinen tila (Syaani) */
+.btn.active-learn {
+  border-color: #00f5d4;
+  color: #ffffff;
+  background: rgba(0, 245, 212, 0.15);
+  box-shadow: 
+    0 0 16px rgba(0, 245, 212, 0.6),
+    inset 0 0 10px rgba(0, 245, 212, 0.3);
+  text-shadow: 0 0 8px #00f5d4;
+}
+
 #upload-label {
   display:flex; align-items:center; gap:7px;
   padding:7px 16px;
@@ -501,7 +512,7 @@ header p {
 }
 .pedal:active { transform:scaleY(.82); }
 
-/* TWO CANVASES: Golden Falling Notes + Original Particle Sparks */
+/* TWO CANVACES: Golden Falling Notes + Original Particle Sparks */
 #falling-canvas, #particle-canvas {
   position:fixed;
   top:0;
@@ -540,6 +551,8 @@ header p {
     <button class="btn" id="stop-btn">■ Pysäytä</button>
     <!-- Valaistu Clef-nuottiviivastokytkin (On oletuksena) -->
     <button class="btn active-clef" id="clef-btn">𝄞 Viivasto</button>
+    <!-- Opi-painike (Oletuksena pois) -->
+    <button class="btn" id="learn-btn">🎓 Opi</button>
     
     <!-- Päivitetty MIDI- ja sointupaneeli -->
     <div class="midi-panel">
@@ -722,6 +735,15 @@ header p {
 
 <script>
 // ═══════════════════════════════════════════════════════════════
+// ALUSTUS & GLOBAALIT MUUTTUJAT (ESTETÄÄN INITIALIZATION-VIRHEET)
+// ═══════════════════════════════════════════════════════════════
+let clefMode = true; 
+let learnMode = false;
+let learnSteps = [];
+let learnIndex = 0;
+let slideOffset = 0;
+
+// ═══════════════════════════════════════════════════════════════
 // 88-KEY PIANO LAYOUT
 // ═══════════════════════════════════════════════════════════════
 const keysContainer = document.getElementById('keys');
@@ -802,12 +824,17 @@ animateParticles();
 // ═══════════════════════════════════════════════════════════════
 // VIIVASTOMALLIN MUUNNOS JA VISUALISOINTI (CLEF MODE)
 // ═══════════════════════════════════════════════════════════════
-let clefMode = true; // Oletuksena käytössä On-tilassa
 const clefBtn = document.getElementById('clef-btn');
 
 clefBtn.addEventListener('click', () => {
   clefMode = !clefMode;
   clefBtn.classList.toggle('active-clef', clefMode);
+  
+  if (learnMode && !clefMode) {
+    // Suljetaan Opi-tila jos viivasto otetaan väkisin pois
+    toggleLearnMode(false);
+  }
+  
   fallingNotes = []; // tyhjennetään nykyiset nuotit häiriöiden välttämiseksi
   if (clefMode) {
     setStatus('Nuottiviivastotila aktivoitu', true);
@@ -1060,152 +1087,265 @@ function drawFallingNotes() {
     drawGrandStaff();
   }
 
-  for (const n of fallingNotes) {
-    const isSyaani = n.isUserNote;
-    const strokeColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.5})` : `rgba(255, 210, 80, ${n.alpha * 0.5})`;
-    const headColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha})` : `rgba(245, 215, 66, ${n.alpha})`;
-    const glowColor = isSyaani ? '#00f5d4' : '#c9a84c';
+  // Jos ollaan Opi-tilassa ja viivasto on näkyvissä, piirretään seuraavat soitettavat nuotit
+  if (learnMode && clefMode) {
+    slideOffset += (0 - slideOffset) * 0.15; // Pehmeä siirtymäanimaatio askeleesta toiseen
+    const triggerX = window.innerWidth / 3;
+    const stepWidth = 80;
+    
+    // Piirretään nykyinen ja seuraavat 5 askelta
+    const startIdx = learnIndex;
+    const endIdx = Math.min(learnSteps.length, learnIndex + 6);
 
-    if (clefMode) {
-      fCtx.save();
-      fCtx.shadowBlur = n.hit ? 15 : 5;
-      fCtx.shadowColor = glowColor;
+    for (let i = startIdx; i < endIdx; i++) {
+      const step = learnSteps[i];
+      const x = triggerX + (i - learnIndex) * stepWidth + slideOffset;
 
-      // Piirretään tyylikäs liukuhäntä
-      if (n.trail && n.trail.length > 1) {
-        fCtx.beginPath();
-        fCtx.moveTo(n.trail[0].x, n.trail[0].y);
-        for (let t = 1; t < n.trail.length; t++) {
-          fCtx.lineTo(n.trail[t].x, n.trail[t].y);
+      if (x < 50 || x > window.innerWidth - 30) continue;
+      const isCurrent = (i === learnIndex);
+
+      step.notes.forEach(midi => {
+        const y = midiToStaffY(midi);
+        const isHit = step.hitMap[midi];
+
+        let alpha = 1;
+        if (!isCurrent) {
+          alpha = 0.5 - (i - learnIndex) * 0.07;
         }
-        fCtx.strokeStyle = strokeColor;
-        fCtx.lineWidth = isSyaani ? 3.5 : 2.5;
-        fCtx.stroke();
-      }
+        alpha = Math.max(0.15, alpha);
 
-      // Piirretään apuviivat nuoteille jotka tarvitsevat niitä (kuten keski-C)
-      const lineSpacing = 11;
-      const stepHeight = lineSpacing / 2;
-      const midiToDiatonic = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
-      const octave = Math.floor(n.targetKey / 12) - 5;
-      const noteInOctave = n.targetKey % 12;
-      const step = octave * 7 + midiToDiatonic[noteInOctave];
+        const headColor = isHit 
+          ? `rgba(0, 245, 212, ${alpha})` // Syaani soitetuille nuoteille
+          : (isCurrent ? `rgba(245, 215, 66, ${alpha})` : `rgba(201, 168, 76, ${alpha})`);
 
-      // Keski-C (step = 0) ja ylä/alapuoliset lisäviivat
-      const isLedger = (step === 0 || (step >= 12 && step % 2 === 0) || (step <= -12 && step % 2 === 0));
-      if (isLedger) {
-        fCtx.beginPath();
-        fCtx.moveTo(n.x - 10, n.y);
-        fCtx.lineTo(n.x + 10, n.y);
-        fCtx.strokeStyle = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.8})` : `rgba(201, 168, 76, ${n.alpha * 0.8})`;
-        fCtx.lineWidth = 1.5;
-        fCtx.stroke();
-      }
+        const strokeColor = isHit 
+          ? `rgba(0, 245, 212, ${alpha * 0.5})` 
+          : `rgba(201, 168, 76, ${alpha * 0.5})`;
 
-      // Etumerkki (korotusmerkki ♯) mustille koskettimille
-      const noteName = NOTE_NAMES[n.targetKey % 12];
-      if (BLACK_SET.has(noteName)) {
-        fCtx.font = '12px serif';
-        fCtx.fillStyle = headColor;
-        fCtx.fillText('♯', n.x - 13, n.y + 4.5);
-      }
+        const glowColor = isHit ? '#00f5d4' : '#c9a84c';
 
-      // Ellipsin muotoinen tyylikäs nuotin pää (kallistettu)
-      fCtx.translate(n.x, n.y);
-      fCtx.rotate(-Math.PI / 7);
-      fCtx.beginPath();
-      fCtx.ellipse(0, 0, 5.8, 4.1, 0, 0, Math.PI * 2);
-      fCtx.fillStyle = headColor;
-      fCtx.fill();
-
-      fCtx.restore();
-
-      // Osuman laajeneva ympyrä trigger-viivalla
-      if (n.hit && n.alpha > 0.4 && !isSyaani) {
         fCtx.save();
-        fCtx.shadowBlur = 12; fCtx.shadowColor = '#f5d742';
-        fCtx.beginPath();
-        fCtx.arc(n.impactX, n.impactY, 13 * (1.6 - n.alpha), 0, Math.PI * 2);
-        fCtx.strokeStyle = `rgba(255, 230, 110, ${(n.alpha - 0.4) * 1.6})`;
-        fCtx.lineWidth = 1.2;
-        fCtx.stroke();
-        fCtx.restore();
-      }
-    } else {
-      // ALKUPERÄINEN pystytippumis-piirto
-      if (n.hit) {
-        if (n.trail && n.trail.length > 1) {
-          for (let t = 0; t < n.trail.length - 1; t++) {
-            const p0 = n.trail[t], p1 = n.trail[t+1];
-            const frac = t / n.trail.length;
-            const tailAlpha = frac * n.alpha * 0.7;
-            fCtx.beginPath();
-            fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
-            fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
-            fCtx.lineWidth = 1.5 + frac * 3;
-            fCtx.shadowBlur = 8; fCtx.shadowColor = '#c9a84c';
-            fCtx.stroke();
-          }
+        if (isCurrent && !isHit) {
+          // Hehkuva pulssi soittamattomille nykyisille nuoteille
+          const pulse = 1 + 0.1 * Math.sin(performance.now() * 0.008);
+          fCtx.shadowBlur = 12 * pulse;
+          fCtx.shadowColor = '#f5d742';
+        } else {
+          fCtx.shadowBlur = 4;
+          fCtx.shadowColor = glowColor;
         }
-        const ix = n.impactX || n.x, iy = n.impactY || n.y;
-        fCtx.save();
-        fCtx.shadowBlur = 28 * n.alpha; fCtx.shadowColor = '#ffe066';
-        fCtx.beginPath(); fCtx.arc(ix, iy, n.radius * (1 - n.alpha*0.3), 0, Math.PI*2);
-        fCtx.fillStyle = `rgba(255, 200, 80, ${n.alpha * 0.85})`; fCtx.fill();
-        if (n.alpha > 0.3) {
-          const ringR = n.radius * (2.5 - n.alpha);
-          fCtx.beginPath(); fCtx.arc(ix, iy, ringR, 0, Math.PI*2);
-          fCtx.strokeStyle = `rgba(255,240,140,${n.alpha * 0.6})`; 
-          fCtx.lineWidth = 1.5; fCtx.stroke();
-          for (let s = 0; s < 8; s++) {
-            const ang = (Math.PI * 2 / 8) * s + (1-n.alpha) * 0.5;
-            const r1 = n.radius * 1.2, r2 = ringR * 1.3 * (1 - n.alpha * 0.4);
-            fCtx.beginPath();
-            fCtx.moveTo(ix + Math.cos(ang)*r1, iy + Math.sin(ang)*r1);
-            fCtx.lineTo(ix + Math.cos(ang)*r2, iy + Math.sin(ang)*r2);
-            fCtx.strokeStyle = `rgba(255,230,100,${n.alpha * 0.55})`;
-            fCtx.lineWidth = 1; fCtx.stroke();
-          }
-        }
-        fCtx.restore();
-      } else {
-        fCtx.save();
-        if (n.trail && n.trail.length > 1) {
-          for (let t = 0; t < n.trail.length - 1; t++) {
-            const p0 = n.trail[t], p1 = n.trail[t+1];
-            const frac = t / n.trail.length;
-            const tailAlpha = frac * 0.75;
-            const w = 1.2 + frac * 4;
-            fCtx.beginPath();
-            fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
-            fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
-            fCtx.lineWidth = w;
-            fCtx.shadowBlur = 8 * frac; fCtx.shadowColor = '#c9a84c88';
-            fCtx.stroke();
-          }
-          const tp = n.trail[n.trail.length-1];
+
+        // Piirretään apuviivat
+        const lineSpacing = 11;
+        const stepHeight = lineSpacing / 2;
+        const midiToDiatonic = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+        const octave = Math.floor(midi / 12) - 5;
+        const noteInOctave = midi % 12;
+        const dStep = octave * 7 + midiToDiatonic[noteInOctave];
+
+        const isLedger = (dStep === 0 || (dStep >= 12 && dStep % 2 === 0) || (dStep <= -12 && dStep % 2 === 0));
+        if (isLedger) {
           fCtx.beginPath();
-          fCtx.moveTo(tp.x, tp.y); fCtx.lineTo(n.x, n.y);
-          fCtx.strokeStyle = 'rgba(255,245,180,0.9)';
-          fCtx.lineWidth = 2.5;
-          fCtx.shadowBlur = 14; fCtx.shadowColor = '#ffe080';
+          fCtx.moveTo(x - 10, y);
+          fCtx.lineTo(x + 10, y);
+          fCtx.strokeStyle = isHit ? `rgba(0, 245, 212, ${alpha * 0.8})` : `rgba(201, 168, 76, ${alpha * 0.8})`;
+          fCtx.lineWidth = 1.5;
           fCtx.stroke();
         }
-        fCtx.restore();
-        fCtx.save(); fCtx.shadowBlur = 16; fCtx.shadowColor = '#c9a84c';
-        fCtx.translate(n.x, n.y); fCtx.rotate(n.rotation);
-        fCtx.beginPath();
-        for (let i=0;i<10;i++) {
-          let rad = i%2===0 ? n.radius : n.radius*0.45;
-          let ang = (Math.PI*2/10)*i;
-          let xp = Math.cos(ang)*rad, yp = Math.sin(ang)*rad;
-          if(i===0) fCtx.moveTo(xp,yp); else fCtx.lineTo(xp,yp);
+
+        // Korotukset
+        const noteName = NOTE_NAMES[midi % 12];
+        if (BLACK_SET.has(noteName)) {
+          fCtx.font = '12px serif';
+          fCtx.fillStyle = headColor;
+          fCtx.fillText('♯', x - 13, y + 4.5);
         }
-        fCtx.closePath();
-        fCtx.fillStyle = '#f5d742'; fCtx.fill();
-        fCtx.beginPath(); fCtx.arc(0,0,n.radius*0.45,0,Math.PI*2);
-        fCtx.fillStyle = '#ffecb0'; fCtx.fill();
+
+        // Kallistettu nuotin pää
+        fCtx.translate(x, y);
+        fCtx.rotate(-Math.PI / 7);
+        fCtx.beginPath();
+        fCtx.ellipse(0, 0, 5.8, 4.1, 0, 0, Math.PI * 2);
+        fCtx.fillStyle = headColor;
+        fCtx.fill();
         fCtx.restore();
+      });
+    }
+
+    // Piirretään käyttäjän soittamat ja ohi liukuvat syaanin väriset nuotit Opi-tilassa
+    for (const n of fallingNotes) {
+      if (n.isUserNote) {
+        fCtx.save();
+        fCtx.shadowBlur = 5; fCtx.shadowColor = '#00f5d4';
+        if (n.trail && n.trail.length > 1) {
+          fCtx.beginPath();
+          fCtx.moveTo(n.trail[0].x, n.trail[0].y);
+          for (let t = 1; t < n.trail.length; t++) {
+            fCtx.lineTo(n.trail[t].x, n.trail[t].y);
+          }
+          fCtx.strokeStyle = `rgba(0, 245, 212, ${n.alpha * 0.5})`;
+          fCtx.lineWidth = 3.5;
+          fCtx.stroke();
+        }
+        fCtx.translate(n.x, n.y);
+        fCtx.rotate(-Math.PI / 7);
+        fCtx.beginPath();
+        fCtx.ellipse(0, 0, 5.8, 4.1, 0, 0, Math.PI * 2);
+        fCtx.fillStyle = `rgba(0, 245, 212, ${n.alpha})`;
+        fCtx.fill();
+        fCtx.restore();
+      }
+    }
+
+  } else {
+    // Alkuperäinen putoavien tähtien ja nuottien piirto
+    for (const n of fallingNotes) {
+      const isSyaani = n.isUserNote;
+      const strokeColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.5})` : `rgba(255, 210, 80, ${n.alpha * 0.5})`;
+      const headColor = isSyaani ? `rgba(0, 245, 212, ${n.alpha})` : `rgba(245, 215, 66, ${n.alpha})`;
+      const glowColor = isSyaani ? '#00f5d4' : '#c9a84c';
+
+      if (clefMode) {
+        fCtx.save();
+        fCtx.shadowBlur = n.hit ? 15 : 5;
+        fCtx.shadowColor = glowColor;
+
+        // Piirretään tyylikäs liukuhäntä
+        if (n.trail && n.trail.length > 1) {
+          fCtx.beginPath();
+          fCtx.moveTo(n.trail[0].x, n.trail[0].y);
+          for (let t = 1; t < n.trail.length; t++) {
+            fCtx.lineTo(n.trail[t].x, n.trail[t].y);
+          }
+          fCtx.strokeStyle = strokeColor;
+          fCtx.lineWidth = isSyaani ? 3.5 : 2.5;
+          fCtx.stroke();
+        }
+
+        // Piirretään apuviivat nuoteille jotka tarvitsevat niitä (kuten keski-C)
+        const lineSpacing = 11;
+        const stepHeight = lineSpacing / 2;
+        const midiToDiatonic = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+        const octave = Math.floor(n.targetKey / 12) - 5;
+        const noteInOctave = n.targetKey % 12;
+        const step = octave * 7 + midiToDiatonic[noteInOctave];
+
+        // Keski-C (step = 0) ja ylä/alapuoliset lisäviivat
+        const isLedger = (step === 0 || (step >= 12 && step % 2 === 0) || (step <= -12 && step % 2 === 0));
+        if (isLedger) {
+          fCtx.beginPath();
+          fCtx.moveTo(n.x - 10, n.y);
+          fCtx.lineTo(n.x + 10, n.y);
+          fCtx.strokeStyle = isSyaani ? `rgba(0, 245, 212, ${n.alpha * 0.8})` : `rgba(201, 168, 76, ${n.alpha * 0.8})`;
+          fCtx.lineWidth = 1.5;
+          fCtx.stroke();
+        }
+
+        // Etumerkki (korotusmerkki ♯) mustille koskettimille
+        const noteName = NOTE_NAMES[n.targetKey % 12];
+        if (BLACK_SET.has(noteName)) {
+          fCtx.font = '12px serif';
+          fCtx.fillStyle = headColor;
+          fCtx.fillText('♯', n.x - 13, n.y + 4.5);
+        }
+
+        // Ellipsin muotoinen tyylikäs nuotin pää (kallistettu)
+        fCtx.translate(n.x, n.y);
+        fCtx.rotate(-Math.PI / 7);
+        fCtx.beginPath();
+        fCtx.ellipse(0, 0, 5.8, 4.1, 0, 0, Math.PI * 2);
+        fCtx.fillStyle = headColor;
+        fCtx.fill();
+
+        fCtx.restore();
+
+        // Osuman laajeneva ympyrä trigger-viivalla
+        if (n.hit && n.alpha > 0.4 && !isSyaani) {
+          fCtx.save();
+          fCtx.shadowBlur = 12; fCtx.shadowColor = '#f5d742';
+          fCtx.beginPath();
+          fCtx.arc(n.impactX, n.impactY, 13 * (1.6 - n.alpha), 0, Math.PI * 2);
+          fCtx.strokeStyle = `rgba(255, 230, 110, ${(n.alpha - 0.4) * 1.6})`;
+          fCtx.lineWidth = 1.2;
+          fCtx.stroke();
+          fCtx.restore();
+        }
+      } else {
+        // ALKUPERÄINEN pystytippumis-piirto
+        if (n.hit) {
+          if (n.trail && n.trail.length > 1) {
+            for (let t = 0; t < n.trail.length - 1; t++) {
+              const p0 = n.trail[t], p1 = n.trail[t+1];
+              const frac = t / n.trail.length;
+              const tailAlpha = frac * n.alpha * 0.7;
+              fCtx.beginPath();
+              fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+              fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+              fCtx.lineWidth = 1.5 + frac * 3;
+              fCtx.shadowBlur = 8; fCtx.shadowColor = '#c9a84c';
+              fCtx.stroke();
+            }
+          }
+          const ix = n.impactX || n.x, iy = n.impactY || n.y;
+          fCtx.save();
+          fCtx.shadowBlur = 28 * n.alpha; fCtx.shadowColor = '#ffe066';
+          fCtx.beginPath(); fCtx.arc(ix, iy, n.radius * (1 - n.alpha*0.3), 0, Math.PI*2);
+          fCtx.fillStyle = `rgba(255, 200, 80, ${n.alpha * 0.85})`; fCtx.fill();
+          if (n.alpha > 0.3) {
+            const ringR = n.radius * (2.5 - n.alpha);
+            fCtx.beginPath(); fCtx.arc(ix, iy, ringR, 0, Math.PI*2);
+            fCtx.strokeStyle = `rgba(255,240,140,${n.alpha * 0.6})`; 
+            fCtx.lineWidth = 1.5; fCtx.stroke();
+            for (let s = 0; s < 8; s++) {
+              const ang = (Math.PI * 2 / 8) * s + (1-n.alpha) * 0.5;
+              const r1 = n.radius * 1.2, r2 = ringR * 1.3 * (1 - n.alpha * 0.4);
+              fCtx.beginPath();
+              fCtx.moveTo(ix + Math.cos(ang)*r1, iy + Math.sin(ang)*r1);
+              fCtx.lineTo(ix + Math.cos(ang)*r2, iy + Math.sin(ang)*r2);
+              fCtx.strokeStyle = `rgba(255,230,100,${n.alpha * 0.55})`;
+              fCtx.lineWidth = 1; fCtx.stroke();
+            }
+          }
+          fCtx.restore();
+        } else {
+          fCtx.save();
+          if (n.trail && n.trail.length > 1) {
+            for (let t = 0; t < n.trail.length - 1; t++) {
+              const p0 = n.trail[t], p1 = n.trail[t+1];
+              const frac = t / n.trail.length;
+              const tailAlpha = frac * 0.75;
+              const w = 1.2 + frac * 4;
+              fCtx.beginPath();
+              fCtx.moveTo(p0.x, p0.y); fCtx.lineTo(p1.x, p1.y);
+              fCtx.strokeStyle = `rgba(255,210,80,${tailAlpha})`;
+              fCtx.lineWidth = w;
+              fCtx.shadowBlur = 8 * frac; fCtx.shadowColor = '#c9a84c88';
+              fCtx.stroke();
+            }
+            const tp = n.trail[n.trail.length-1];
+            fCtx.beginPath();
+            fCtx.moveTo(tp.x, tp.y); fCtx.lineTo(n.x, n.y);
+            fCtx.strokeStyle = 'rgba(255,245,180,0.9)';
+            fCtx.lineWidth = 2.5;
+            fCtx.shadowBlur = 14; fCtx.shadowColor = '#ffe080';
+            fCtx.stroke();
+          }
+          fCtx.restore();
+          fCtx.save(); fCtx.shadowBlur = 16; fCtx.shadowColor = '#c9a84c';
+          fCtx.translate(n.x, n.y); fCtx.rotate(n.rotation);
+          fCtx.beginPath();
+          for (let i=0;i<10;i++) {
+            let rad = i%2===0 ? n.radius : n.radius*0.45;
+            let ang = (Math.PI*2/10)*i;
+            let xp = Math.cos(ang)*rad, yp = Math.sin(ang)*rad;
+            if(i===0) fCtx.moveTo(xp,yp); else fCtx.lineTo(xp,yp);
+          }
+          fCtx.closePath();
+          fCtx.fillStyle = '#f5d742'; fCtx.fill();
+          fCtx.beginPath(); fCtx.arc(0,0,n.radius*0.45,0,Math.PI*2);
+          fCtx.fillStyle = '#ffecb0'; fCtx.fill();
+          fCtx.restore();
+        }
       }
     }
   }
@@ -1255,11 +1395,42 @@ function releaseKeyVisual(midi) {
   if (el) el.classList.remove('active');
 }
 
-function playManualNote(midi, vel=100) {
-  pressKeyVisual(midi);
+function userPlayedNoteOn(midi, vel = 100) {
+  if (learnMode && learnSteps.length > 0) {
+    const currentStep = learnSteps[learnIndex];
+    if (currentStep && currentStep.notes.includes(midi)) {
+      if (!currentStep.hitMap[midi]) {
+        currentStep.hitMap[midi] = true;
+
+        playTone(midi, vel);
+        pressKeyVisual(midi);
+        trackActiveNote(midi);
+        sendMidiNote(midi, vel);
+        spawnUserNote(midi);
+
+        // Katso onko askel valmis
+        const stepDone = currentStep.notes.every(n => currentStep.hitMap[n]);
+        if (stepDone) {
+          currentStep.completed = true;
+          if (learnIndex < learnSteps.length - 1) {
+            learnIndex++;
+            slideOffset += 80; // Liukuaskeleen alustus oikealle
+            setStatus(`Opi-tila: ${learnIndex + 1} / ${learnSteps.length}`, true);
+          } else {
+            setStatus('🎉 Onnittelut! Soitit koko kappaleen loppuun!', true);
+          }
+        }
+      }
+      return; // Estetään soittimen tuplakäynnistys
+    }
+  }
+
+  // Normaalitila (tai virheellinen kosketin Opi-tilassa, jolloin se soi vapaasti)
   playTone(midi, vel);
-  sendMidiNote(midi, vel);
+  pressKeyVisual(midi);
   trackActiveNote(midi);
+  sendMidiNote(midi, vel);
+
   if (clefMode) {
     spawnUserNote(midi);
   } else {
@@ -1267,10 +1438,18 @@ function playManualNote(midi, vel=100) {
       spawnParticleAtFromMidi(m);
     }, 600);
   }
+}
+
+function userPlayedNoteOff(midi) {
+  releaseKeyVisual(midi);
+  sendMidiNoteOff(midi);
+  untrackActiveNote(midi);
+}
+
+function playManualNote(midi, vel=100) {
+  userPlayedNoteOn(midi, vel);
   setTimeout(() => { 
-    releaseKeyVisual(midi); 
-    sendMidiNoteOff(midi); 
-    untrackActiveNote(midi);
+    userPlayedNoteOff(midi);
   }, 600);
 }
 
@@ -1285,9 +1464,49 @@ document.querySelectorAll('.wkey, .bkey').forEach(el => {
   el.addEventListener('touchstart', e => { e.preventDefault(); playManualNote(midi, 100); }, {passive:false});
 });
 
+// Webaudio: Lisätty LPF, HPF ja Compressor peak limiteriksi
 let audioCtx = null, masterGain = null, volumeLevel = 0.75;
-function getAudioCtx() { if (!audioCtx) { audioCtx = new (window.AudioContext||window.webkitAudioContext)(); masterGain = audioCtx.createGain(); masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); masterGain.connect(audioCtx.destination); } return audioCtx; }
-function setVolume(v) { volumeLevel = Math.max(0, Math.min(1, v)); if(masterGain) masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); }
+let lpfFilter = null, hpfFilter = null, peakLimiter = null;
+
+function getAudioCtx() { 
+  if (!audioCtx) { 
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)(); 
+    masterGain = audioCtx.createGain(); 
+    masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); 
+    
+    // Alipäästösuodin (Warm LPF)
+    lpfFilter = audioCtx.createBiquadFilter();
+    lpfFilter.type = 'lowpass';
+    lpfFilter.frequency.setValueAtTime(14000, audioCtx.currentTime);
+    lpfFilter.Q.setValueAtTime(1, audioCtx.currentTime);
+    
+    // Ylipäästösuodin (HPF) bassomutakomponenttien poistamiseen
+    hpfFilter = audioCtx.createBiquadFilter();
+    hpfFilter.type = 'highpass';
+    hpfFilter.frequency.setValueAtTime(25, audioCtx.currentTime);
+    
+    // Peak-estorajain (Limiter-kompressori)
+    peakLimiter = audioCtx.createDynamicsCompressor();
+    peakLimiter.threshold.setValueAtTime(-1.0, audioCtx.currentTime);
+    peakLimiter.knee.setValueAtTime(0, audioCtx.currentTime);
+    peakLimiter.ratio.setValueAtTime(12.0, audioCtx.currentTime);
+    peakLimiter.attack.setValueAtTime(0.003, audioCtx.currentTime);
+    peakLimiter.release.setValueAtTime(0.08, audioCtx.currentTime);
+    
+    // Kytkentäketju
+    masterGain.connect(lpfFilter);
+    lpfFilter.connect(hpfFilter);
+    hpfFilter.connect(peakLimiter);
+    peakLimiter.connect(audioCtx.destination);
+  } 
+  return audioCtx; 
+}
+
+function setVolume(v) { 
+  volumeLevel = Math.max(0, Math.min(1, v)); 
+  if(masterGain) masterGain.gain.setValueAtTime(volumeLevel, audioCtx.currentTime); 
+}
+
 function playTone(midi, vel=100, dur=0.65) {
   const ctx = getAudioCtx(); const freq = 440 * Math.pow(2, (midi-69)/12);
   const osc1=ctx.createOscillator(), osc2=ctx.createOscillator(), gain=ctx.createGain(), gain2=ctx.createGain();
@@ -1431,19 +1650,7 @@ window.addEventListener('keydown', (e) => {
   if (targetMidi !== null) {
     pressedKeys.add(key);
     activeKeyboardNotes.set(key, targetMidi);
-
-    playTone(targetMidi, 100);
-    pressKeyVisual(targetMidi);
-    sendMidiNote(targetMidi, 100);
-    trackActiveNote(targetMidi);
-
-    if (clefMode) {
-      spawnUserNote(targetMidi);
-    } else {
-      spawnGoldenNoteWithCallback(targetMidi, (m) => {
-        spawnParticleAtFromMidi(m);
-      }, 600);
-    }
+    userPlayedNoteOn(targetMidi, 100);
   }
 });
 
@@ -1453,9 +1660,7 @@ window.addEventListener('keyup', (e) => {
     pressedKeys.delete(key);
     const midi = activeKeyboardNotes.get(key);
     if (midi !== undefined) {
-      releaseKeyVisual(midi);
-      sendMidiNoteOff(midi);
-      untrackActiveNote(midi);
+      userPlayedNoteOff(midi);
       activeKeyboardNotes.delete(key);
     }
   }
@@ -1465,9 +1670,7 @@ window.addEventListener('blur', () => {
   pressedKeys.forEach(key => {
     const midi = activeKeyboardNotes.get(key);
     if (midi !== undefined) {
-      releaseKeyVisual(midi);
-      sendMidiNoteOff(midi);
-      untrackActiveNote(midi);
+      userPlayedNoteOff(midi);
     }
   });
   pressedKeys.clear();
@@ -1544,21 +1747,9 @@ function onMidiInMessage(e){
   const type=status&0xF0;
   if(type===0x90&&velocity>0){
     flashMidiIn();
-    pressKeyVisual(note);
-    playTone(note,velocity);
-    trackActiveNote(note);
-    if (clefMode) {
-      spawnUserNote(note);
-    } else {
-      spawnGoldenNoteWithCallback(note,(m)=>spawnParticleAtFromMidi(m),500);
-    }
-    setTimeout(() => { 
-      releaseKeyVisual(note); 
-      untrackActiveNote(note);
-    }, 500);
+    userPlayedNoteOn(note, velocity);
   } else if(type===0x80||(type===0x90&&velocity===0)){
-    releaseKeyVisual(note);
-    untrackActiveNote(note);
+    userPlayedNoteOff(note);
   }
 }
 
@@ -1574,7 +1765,27 @@ function parseMidi(buffer){ const dv=new DataView(buffer); let pos=0; const ru32
 function flattenTracks(midi){ const tpb=midi.timeDivision; const all=[]; midi.tracks.forEach(tr=>tr.forEach(e=>all.push({...e}))); all.sort((a,b)=>a.tick-b.tick||(a.type==='noteOff'?-1:0)); const tempos=all.filter(e=>e.type==='tempo'); function ticksToMs(tick){ let ms=0,t0=0,bpm0=120; for(const tm of tempos){ if(tm.tick>=tick)break; ms+=(tm.tick-t0)/tpb*(60000/bpm0); t0=tm.tick; bpm0=tm.bpm;} ms+=(tick-t0)/tpb*(60000/bpm0); return ms;} return all.filter(e=>e.type==='noteOn'||e.type==='noteOff').map(e=>({...e,ms:ticksToMs(e.tick)}));}
 let midiEvents=null, playTimers=[], isPlaying=false, totalDurationMs=0, playStartTime=null, progressInterval;
 const playBtn=document.getElementById('play-btn'), stopBtn=document.getElementById('stop-btn'), statusEl=document.getElementById('status'), progressBar=document.getElementById('progress-bar');
-document.getElementById('file-input').addEventListener('change', function(e){ const file=e.target.files[0]; if(!file)return; const reader=new FileReader(); reader.onload=function(ev){ try{ const midi=parseMidi(ev.target.result); midiEvents=flattenTracks(midi); if(!midiEvents.length){setStatus('Ei nuotteja',false);return;} totalDurationMs=Math.max(...midiEvents.map(e=>e.ms)); setStatus(file.name+' — '+midiEvents.length+' tapahtumaa',true); playBtn.classList.add('playing'); }catch(err){setStatus('Virhe: '+err.message,false);} }; reader.readAsArrayBuffer(file); });
+
+document.getElementById('file-input').addEventListener('change', function(e){ 
+  const file=e.target.files[0]; 
+  if(!file)return; 
+  const reader=new FileReader(); 
+  reader.onload=function(ev){ 
+    try{ 
+      const midi=parseMidi(ev.target.result); 
+      midiEvents=flattenTracks(midi); 
+      if(!midiEvents.length){setStatus('Ei nuotteja',false);return;} 
+      totalDurationMs=Math.max(...midiEvents.map(e=>e.ms)); 
+      setStatus(file.name+' — '+midiEvents.length+' tapahtumaa',true); 
+      playBtn.classList.add('playing'); 
+      if (learnMode) {
+        prepareLearnSteps();
+      }
+    }catch(err){setStatus('Virhe: '+err.message,false);} 
+  }; 
+  reader.readAsArrayBuffer(file); 
+});
+
 function setStatus(msg,active){statusEl.textContent=msg;statusEl.className=active?'active':'';}
 
 const STAR_FALL_DURATION = 500; // Alkuperäinen pudotusaika pystytilassa
@@ -1653,9 +1864,98 @@ function stopPlayback() {
 playBtn.addEventListener('click', () => {
   if (!midiEvents) { setStatus('Lataa ensin MIDI-tiedosto', false); return; }
   if (isPlaying) stopPlayback();
+  if (learnMode) toggleLearnMode(false);
   startPlayback();
 });
 stopBtn.addEventListener('click', stopPlayback);
+
+// ═══════════════════════════════════════════════════════════════
+// OPI-TILAN ALUSTUS & REAALIAIKAINEN TOIMINTA
+// ═══════════════════════════════════════════════════════════════
+const learnBtn = document.getElementById('learn-btn');
+
+// Tuiki Tuiki Tähtönen (Nuottilista MIDI-arvoina)
+const TUIKI_TUIKI = [
+  60, 60, 67, 67, 69, 69, 67,
+  65, 65, 64, 64, 62, 62, 60,
+  67, 67, 65, 65, 64, 64, 62,
+  67, 67, 65, 65, 64, 64, 62,
+  60, 60, 67, 67, 69, 69, 67,
+  65, 65, 64, 64, 62, 62, 60
+];
+
+function prepareLearnSteps() {
+  let steps = [];
+  
+  if (midiEvents && midiEvents.length > 0) {
+    // Luodaan askeleet ladatusta MIDI-tiedostosta
+    const noteOns = midiEvents.filter(ev => ev.type === 'noteOn' && ev.velocity > 0);
+    
+    // Ryhmitellään soinnut/lähellä olevat nuotit samalle askeleelle
+    let activeGroup = [];
+    let lastMs = -999;
+    
+    noteOns.forEach(ev => {
+      if (ev.ms - lastMs > 60) {
+        if (activeGroup.length > 0) {
+          steps.push(activeGroup);
+        }
+        activeGroup = [ev.note];
+        lastMs = ev.ms;
+      } else {
+        if (!activeGroup.includes(ev.note)) {
+          activeGroup.push(ev.note);
+        }
+      }
+    });
+    if (activeGroup.length > 0) {
+      steps.push(activeGroup);
+    }
+  } else {
+    // Jos MIDI-tiedostoa ei ole ladattu, käytetään Tuiki Tuiki Tähtöstä
+    steps = TUIKI_TUIKI.map(note => [note]);
+  }
+
+  // Muutetaan askeleet seurantamuotoon
+  learnSteps = steps.map(notes => {
+    const hitMap = {};
+    notes.forEach(n => { hitMap[n] = false; });
+    return {
+      notes: notes,
+      hitMap: hitMap,
+      completed: false
+    };
+  });
+
+  learnIndex = 0;
+  slideOffset = 0;
+}
+
+function toggleLearnMode(forceState) {
+  learnMode = (forceState !== undefined) ? forceState : !learnMode;
+  learnBtn.classList.toggle('active-learn', learnMode);
+  
+  if (learnMode) {
+    if (isPlaying) stopPlayback();
+    
+    // Pakotetaan viivasto päälle, jotta askeleet näkyvät oikein
+    if (!clefMode) {
+      clefMode = true;
+      clefBtn.classList.add('active-clef');
+    }
+    
+    prepareLearnSteps();
+    const modeName = midiEvents ? 'Oma MIDI' : 'Tuiki Tuiki Tähtönen';
+    setStatus(`Opi-tila päällä: ${modeName} (${learnSteps.length} askelta)`, true);
+  } else {
+    setStatus('Opi-tila poistettu käytöstä', false);
+  }
+  fallingNotes = []; // tyhjennetään näytön nuotit häiriöiden välttämiseksi
+}
+
+learnBtn.addEventListener('click', () => {
+  toggleLearnMode();
+});
 </script>
 </body>
 </html>
